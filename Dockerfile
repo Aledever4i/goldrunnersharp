@@ -1,15 +1,16 @@
-FROM mcr.microsoft.com/dotnet/sdk:5.0 AS build
-WORKDIR /source
+FROM mcr.microsoft.com/dotnet/core/sdk:3.1 AS build-env
+WORKDIR /app
 
-COPY *.sln .
-COPY *.csproj ./goldrunnersharp/
+COPY *.csproj ./
 RUN dotnet restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:5.0
-WORKDIR /app
-COPY --from=build /app ./
-ENTRYPOINT ["dotnet", "goldrunnersharp.dll"]
+COPY . ./
+RUN dotnet publish -c Release -o out
 
+FROM mcr.microsoft.com/dotnet/core/aspnet:3.1
+WORKDIR /app
+COPY --from=build-env /app/out .
+ENTRYPOINT ["dotnet", "aspnetapp.dll"]
 
 
 #FROM mcr.microsoft.com/dotnet/aspnet:5.0
