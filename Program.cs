@@ -27,6 +27,7 @@ namespace goldrunnersharp
             var client = new Game(api);
 
             client.Start().Wait();
+            client.HttpClient.Dispose();
         }
     }
 
@@ -36,62 +37,97 @@ namespace goldrunnersharp
         public BlockingCollection<Task<Report>> exploreQueue = new BlockingCollection<Task<Report>>();
 
         private readonly string Url;
-        private readonly HttpClient HttpClient = new HttpClient();
+        public readonly HttpClient HttpClient = new HttpClient();
+
         private License license;
+
         private DefaultApi API { get; set; }
 
         //IObservable<Task> ObservedAreas { get; set; }
         //private readonly ConcurrentQueue<Func<Task>> _workItems = new ConcurrentQueue<Func<Task>>();
         //private readonly List<Task> _runItems = new List<Task>();
-        //private readonly SemaphoreSlim _signal;
-        //private int GoldAverage = 0;
+        //
         //private int LicenseAverageCost = 0;
+
+        private readonly SemaphoreSlim _licenseSignal = new SemaphoreSlim(0, 1);
+
+        private int Chests;
+        private int MoneyInChests;
+        private int GoldAverage;
 
         public Game(DefaultApi base_url)
         {
+            this.Chests = 490000;
+            this.MoneyInChests = 23030000;
+            this.GoldAverage = MoneyInChests / Chests;
+
             this.API = base_url;
 
-            Task.Factory.StartNew(() =>
-            {
-                while (true)
-                {
-                    try
-                    {
-                        var action = areasQueue.Take();
-                        action.Wait();
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        break;
-                    }
-                }
-            });
+            //Task.Factory.StartNew(() =>
+            //{
+            //    while (true)
+            //    {
+            //        if (_licenseSignal.CurrentCount == 0 && this.license.DigAllowed - this.license.DigUsed <= 1)
+            //        {
+            //            _licenseSignal.Wait();
+            //            try
+            //            {
+            //                var license = this.API.IssueLicenseAsyncWithHttpInfo(new Wallet()).Result;
+            //                if (license.Data.Id > 0 && license.Data.DigAllowed > 0)
+            //                {
+            //                    this.license = license.Data;
+            //                }
+            //            }
+            //            finally
+            //            {
+            //                _licenseSignal.Release();
+            //            }
+            //        }
+            //    }
+            //});
 
 
-            Task.Factory.StartNew(() =>
-            {
-                while (true)
-                {
-                    try
-                    {
-                        var result = exploreQueue.Take().Result;
+            //Task.Factory.StartNew(() =>
+            //{
+            //    while (true)
+            //    {
+            //        try
+            //        {
+            //            var action = areasQueue.Take();
+            //            action.Wait();
+            //        }
+            //        catch (InvalidOperationException)
+            //        {
+            //            break;
+            //        }
+            //    }
+            //});
 
-                        if (result != null)
-                        {
-                            while (!isAreaOpen())
-                            {
-                                Task.Delay(105).Wait();
-                            }
 
-                            areasQueue.Append(this.AfterExplore(result.Area.PosX.Value, result.Area.PosY.Value, result.Amount));
-                        }
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        break;
-                    }
-                }
-            });
+            //Task.Factory.StartNew(() =>
+            //{
+            //    while (true)
+            //    {
+            //        try
+            //        {
+            //            var result = exploreQueue.Take().Result;
+
+            //            if (result != null)
+            //            {
+            //                while (!isAreaOpen())
+            //                {
+            //                    Task.Delay(105).Wait();
+            //                }
+
+            //                areasQueue.Append(this.AfterExplore(result.Area.PosX.Value, result.Area.PosY.Value, result.Amount));
+            //            }
+            //        }
+            //        catch (InvalidOperationException)
+            //        {
+            //            break;
+            //        }
+            //    }
+            //});
         }
 
         private async Task<IEnumerable<int>> Cash(string treasure)
@@ -183,73 +219,6 @@ namespace goldrunnersharp
             }
         }
 
-        private async Task<TreasureList> Dig(Dig dig)
-        {
-            try
-            {
-                var request = await this.HttpClient.PostAsync($"{Url}/dig", new StringContent(JsonConvert.SerializeObject(dig), Encoding.UTF8, "application/json"));
-
-                if (request.StatusCode == HttpStatusCode.OK)
-                {
-                    //this.Field[dig.PosX, dig.PosY, dig.Depth] = 1;
-
-                    var jsonString = await request.Content.ReadAsStringAsync();
-                    var treasures = JsonConvert.DeserializeObject<TreasureList>(jsonString);
-
-                    return treasures;
-
-                    // получить сокровища, посчитать количество лицензий
-                }
-                else if (request.StatusCode == HttpStatusCode.Forbidden)
-                {
-                    await this.UpdateLicense();
-                    return new TreasureList();
-                }
-                else
-                {
-                    return new TreasureList();
-                }
-            }
-            catch (Exception e)
-            {
-                return new TreasureList();
-            }
-        }
-
-        public async Task AfterExplore(int x, int y, int amount)
-        {
-            var depth = 1;
-            var left = amount;
-
-            //await Task.Delay(1000);
-            //Console.WriteLine($"{x}={y}");
-
-            while (depth <= 10 && left > 0)
-            {
-                while (this.license.Id == null || this.license.DigUsed >= this.license.DigAllowed)
-                {
-                    await this.UpdateLicense();
-                }
-
-                var dig = new Dig(this.license.Id.Value, x, y, depth);
-
-                var treasures = await this.Dig(dig);
-
-                this.license.DigUsed += 1;
-                depth += 1;
-
-                if (treasures.Any())
-                {
-                    foreach (var t in treasures)
-                    {
-                        await this.Cash(t);
-
-                        left -= 1;
-                    }
-                }
-            }
-        }
-
         public bool isExploreOpen()
         {
             return exploreQueue.Count <= 2;
@@ -267,6 +236,15 @@ namespace goldrunnersharp
                 var license = await this.API.IssueLicenseAsyncWithHttpInfo(new Wallet());
                 this.license = license.Data;
             }
+
+            //if (this.license.DigAllowed - this.license.DigUsed == 1)
+            //{
+            //    var license = this.API.IssueLicenseAsyncWithHttpInfo(new Wallet()).Result;
+            //    if (license.Data.Id > 0 && license.Data.DigAllowed > 0)
+            //    {
+            //        this.license = license.Data;
+            //    }
+            //}
         }
 
         public async Task<Report> Explore(Area area)
@@ -291,54 +269,118 @@ namespace goldrunnersharp
             }
         }
 
-        public async Task Start()
+        private Task Cash(TreasureList treasure)
         {
-            this.license = new License(0, 0, 0);
-            try
-            {
-                for (int x = 1; x <= 3500; x++)
+            return Task.Factory.StartNew(() => {
+                foreach (var t in treasure)
                 {
-                    for (int y = 1; y <= 3500; y++)
+                    this.API.CashAsyncWithHttpInfo(t);
+                }
+            });
+        }
+
+        public async Task GoExplore(int fromX, int toX)
+        {
+            var license = new License(0, 0, 0);
+            while (license.DigUsed >= license.DigAllowed || license.Id == 0)
+            {
+                license = (await this.API.IssueLicenseAsyncWithHttpInfo(new Wallet())).Data;
+            }
+
+            for (int x = fromX; x <= toX; x += 1)
+            {
+                for (int y = 1; y <= 3500; y++)
+                {
+                    var explore = await this.Explore(new Area(x, y, 1, 1));
+                    if (explore != null && explore.Amount > 0) // && explore.Amount > this.GoldAverage * 2
                     {
-                        var explore = await this.Explore(new Area(x, y, 1, 1));
-                        if (explore != null && explore.Amount > 0)
+                        var left = explore.Amount;
+                        var depth = 1;
+
+                        while (left > 0 && depth <= 10)
                         {
-                            var left = explore.Amount;
-                            var depth = 1;
-
-                            while (left > 0 && depth <= 10)
+                            while (license.DigUsed >= license.DigAllowed || license.Id == 0)
                             {
-                                await this.UpdateLicense();
+                                license = (await this.API.IssueLicenseAsyncWithHttpInfo(new Wallet())).Data;
+                            }
 
-                                var treasures = await this.API.DigAsyncWithHttpInfo(new Dig(this.license.Id.Value, x, y, depth));
-                                this.license.DigUsed += 1;
-                                depth += 1;
+                            var treasures = await this.API.DigAsyncWithHttpInfo(new Dig(license.Id.Value, x, y, depth));
+                            license.DigUsed += 1;
+                            depth += 1;
 
-                                if (treasures.StatusCode == 200 && treasures.Data != null)
+                            if (treasures.StatusCode == 200 && treasures.Data != null)
+                            {
+                                left -= treasures.Data.Count;
+                                if (treasures.Data.Count > 0)
                                 {
-                                    if (treasures.Data.Any())
-                                    {
-                                        left -= treasures.Data.Count;
-
-                                        foreach (var t in treasures.Data)
-                                        {
-                                            this.API.CashAsyncWithHttpInfo(t);
-                                        }
-                                    }
-                                }
-                                else if (treasures.StatusCode == 403)
-                                {
-                                    await this.UpdateLicense();
+                                    await this.Cash(treasures.Data);
                                 }
                             }
                         }
                     }
                 }
             }
-            finally
-            {
-                this.HttpClient.Dispose();
-            }
+        }
+
+        public Task Start()
+        {
+            var task1 = this.GoExplore(1, 1000);
+            var task2 = this.GoExplore(1001, 2000);
+            var task3 = this.GoExplore(2001, 3000);
+            var task4 = this.GoExplore(3001, 3500);
+
+            return Task.WhenAll(task1, task2, task3, task4);
+
+            //this.license = new License(0, 0, 0);
+            //try
+            //{
+            //    for (int x = 1; x <= 3500; x += 1)
+            //    {
+            //        for (int y = 1; y <= 3500; y++)
+            //        {
+            //            var explore = await this.Explore(new Area(x, y, 1, 1));
+            //            if (explore != null && explore.Amount >= 2) // && explore.Amount > this.GoldAverage * 2
+            //            {
+            //                //var ter = 0;
+            //                //while (ter <= 0)
+            //                //{
+            //                    //explore = await this.Explore(new Area(x + ter, y, 1, 1));
+            //                    //if (explore != null && explore.Amount > 0)
+            //                    //{
+            //                        //ter++;
+            //                        var left = explore.Amount;
+            //                        var depth = 1;
+
+            //                        while (left > 0 && depth <= 10)
+            //                        {
+            //                            //if (this.license.DigAllowed - this.license.DigUsed <= 1)
+            //                            //{
+            //                            //    _ = this.UpdateLicense();
+            //                            //}
+            //                            //else if (this.license.DigAllowed - this.license.DigUsed == 0)
+            //                            //{
+            //                            await this.UpdateLicense();
+            //                            //}
+
+            //                            var treasures = await this.API.DigAsyncWithHttpInfo(new Dig(this.license.Id.Value, x, y, depth));
+            //                            this.license.DigUsed += 1;
+            //                            depth += 1;
+
+            //                            if (treasures.StatusCode == 200 && treasures.Data != null)
+            //                            {
+            //                                left -= treasures.Data.Count;
+            //                                if (treasures.Data.Count > 0)
+            //                                {
+            //                                    _ = this.Cash(treasures.Data);
+            //                                }
+            //                            }
+            //                        }
+            //                    //}
+            //                //}
+            //            }
+            //        }
+            //    }
+            //}
         }
     
         
