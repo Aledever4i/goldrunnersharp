@@ -27,7 +27,7 @@ namespace goldrunnersharp.Model
         /// <param name="id">id (required).</param>
         /// <param name="digAllowed">digAllowed (required).</param>
         /// <param name="digUsed">digUsed (required).</param>
-        public License(int? id = default(int?), int digAllowed = default(int), int digUsed = default)
+        public License(int? id = null, int digAllowed = 0, int digUsed = 0)
         {
             this.Id = id;
             this.DigAllowed = digAllowed;

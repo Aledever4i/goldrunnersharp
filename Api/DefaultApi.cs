@@ -381,7 +381,7 @@ namespace goldrunnersharp.Api
                     (License)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(License)));
             }
 
-            return new ApiResponse<License>(localVarStatusCode, localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()), null);
+            return new ApiResponse<License>(localVarStatusCode, localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()), new License(0, 0, 0));
         }
 
         public async Task<ApiResponse<LicenseList>> ListLicensesAsyncWithHttpInfo ()
