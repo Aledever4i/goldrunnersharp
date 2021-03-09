@@ -53,8 +53,6 @@ namespace goldrunnersharp.Api
 
         public async Task<ApiResponse<Wallet>> CashAsyncWithHttpInfo (string args)
         {
-            if (args == null) throw new ApiException(400, "Missing required parameter 'args' when calling DefaultApi->Cash");
-
             var localVarPath = "/cash";
             var localVarPathParams = new Dictionary<String, String>();
             var localVarQueryParams = new List<KeyValuePair<String, String>>();
@@ -94,23 +92,24 @@ namespace goldrunnersharp.Api
 
             int localVarStatusCode = (int) localVarResponse.StatusCode;
 
-            if (ExceptionFactory != null)
+            //if (ExceptionFactory != null)
+            //{
+            //    Exception exception = ExceptionFactory("Cash", localVarResponse);
+            //    if (exception != null) throw exception;
+            //}
+            if (localVarStatusCode == 200)
             {
-                Exception exception = ExceptionFactory("Cash", localVarResponse);
-                if (exception != null) throw exception;
+                return new ApiResponse<Wallet>(localVarStatusCode,
+                    localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
+                    (Wallet)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(Wallet)));
             }
 
-            return new ApiResponse<Wallet>(localVarStatusCode,
-                localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
-                (Wallet) this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(Wallet)));
+            return new ApiResponse<Wallet>(localVarStatusCode, localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()), null);
+
         }
 
         public async Task<ApiResponse<TreasureList>> DigAsyncWithHttpInfo (Dig args)
         {
-            // verify the required parameter 'args' is set
-            if (args == null)
-                throw new ApiException(400, "Missing required parameter 'args' when calling DefaultApi->Dig");
-
             var localVarPath = "/dig";
             var localVarPathParams = new Dictionary<String, String>();
             var localVarQueryParams = new List<KeyValuePair<String, String>>();
@@ -150,23 +149,24 @@ namespace goldrunnersharp.Api
 
             int localVarStatusCode = (int) localVarResponse.StatusCode;
 
-            if (ExceptionFactory != null)
+            //if (ExceptionFactory != null)
+            //{
+            //    Exception exception = ExceptionFactory("Dig", localVarResponse);
+            //    if (exception != null) throw exception;
+            //}
+            if (localVarStatusCode == 200)
             {
-                Exception exception = ExceptionFactory("Dig", localVarResponse);
-                if (exception != null) throw exception;
+                return new ApiResponse<TreasureList>(localVarStatusCode,
+                    localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
+                    (TreasureList)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(TreasureList)));
             }
 
-            return new ApiResponse<TreasureList>(localVarStatusCode,
-                localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
-                (TreasureList) this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(TreasureList)));
+            return new ApiResponse<TreasureList>(localVarStatusCode, localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()), null);
+
         }
 
         public async Task<ApiResponse<Report>> ExploreAreaAsyncWithHttpInfo (Area args)
         {
-            // verify the required parameter 'args' is set
-            if (args == null)
-                throw new ApiException(400, "Missing required parameter 'args' when calling DefaultApi->ExploreArea");
-
             var localVarPath = "/explore";
             var localVarPathParams = new Dictionary<String, String>();
             var localVarQueryParams = new List<KeyValuePair<String, String>>();
@@ -206,15 +206,21 @@ namespace goldrunnersharp.Api
 
             int localVarStatusCode = (int) localVarResponse.StatusCode;
 
-            if (ExceptionFactory != null)
+            //if (ExceptionFactory != null)
+            //{
+            //    Exception exception = ExceptionFactory("ExploreArea", localVarResponse);
+            //    if (exception != null) throw exception;
+            //}
+
+            if (localVarStatusCode == 200)
             {
-                Exception exception = ExceptionFactory("ExploreArea", localVarResponse);
-                if (exception != null) throw exception;
+                return new ApiResponse<Report>(localVarStatusCode,
+                    localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
+                    (Report)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(Report)));
             }
 
-            return new ApiResponse<Report>(localVarStatusCode,
-                localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
-                (Report) this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(Report)));
+            return new ApiResponse<Report>(localVarStatusCode, localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()), null);
+
         }
 
         public async Task<ApiResponse<Balance>> GetBalanceAsyncWithHttpInfo ()
@@ -251,15 +257,22 @@ namespace goldrunnersharp.Api
 
             int localVarStatusCode = (int) localVarResponse.StatusCode;
 
-            if (ExceptionFactory != null)
+            //if (ExceptionFactory != null)
+            //{
+            //    Exception exception = ExceptionFactory("GetBalance", localVarResponse);
+            //    if (exception != null) throw exception;
+            //}
+
+
+            if (localVarStatusCode == 200)
             {
-                Exception exception = ExceptionFactory("GetBalance", localVarResponse);
-                if (exception != null) throw exception;
+                return new ApiResponse<Balance>(localVarStatusCode,
+                    localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
+                    (Balance)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(Balance)));
             }
 
-            return new ApiResponse<Balance>(localVarStatusCode,
-                localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
-                (Balance) this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(Balance)));
+            return new ApiResponse<Balance>(localVarStatusCode, localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()), null);
+
         }
 
         public async Task<ApiResponse<Dictionary<string, Object>>> HealthCheckAsyncWithHttpInfo ()
@@ -296,15 +309,22 @@ namespace goldrunnersharp.Api
 
             int localVarStatusCode = (int) localVarResponse.StatusCode;
 
-            if (ExceptionFactory != null)
+            //if (ExceptionFactory != null)
+            //{
+            //    Exception exception = ExceptionFactory("HealthCheck", localVarResponse);
+            //    if (exception != null) throw exception;
+            //}
+
+
+            if (localVarStatusCode == 200)
             {
-                Exception exception = ExceptionFactory("HealthCheck", localVarResponse);
-                if (exception != null) throw exception;
+                return new ApiResponse<Dictionary<string, Object>>(localVarStatusCode,
+                    localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
+                    (Dictionary<string, Object>)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(Dictionary<string, Object>)));
             }
 
-            return new ApiResponse<Dictionary<string, Object>>(localVarStatusCode,
-                localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
-                (Dictionary<string, Object>) this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(Dictionary<string, Object>)));
+            return new ApiResponse<Dictionary<string, Object>>(localVarStatusCode, localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()), null);
+
         }
 
         public async Task<ApiResponse<License>> IssueLicenseAsyncWithHttpInfo (Wallet args = null)
@@ -341,7 +361,6 @@ namespace goldrunnersharp.Api
                 localVarPostBody = args; // byte array
             }
 
-
             // make the HTTP request
             IRestResponse localVarResponse = (IRestResponse) await this.Configuration.ApiClient.CallApiAsync(localVarPath,
                 Method.POST, localVarQueryParams, localVarPostBody, localVarHeaderParams, localVarFormParams, localVarFileParams,
@@ -349,15 +368,20 @@ namespace goldrunnersharp.Api
 
             int localVarStatusCode = (int) localVarResponse.StatusCode;
 
-            if (ExceptionFactory != null)
+            //if (ExceptionFactory != null)
+            //{
+            //    Exception exception = ExceptionFactory("IssueLicense", localVarResponse);
+            //    if (exception != null) throw exception;
+            //}
+
+            if (localVarStatusCode == 200)
             {
-                Exception exception = ExceptionFactory("IssueLicense", localVarResponse);
-                if (exception != null) throw exception;
+                return new ApiResponse<License>(localVarStatusCode,
+                    localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
+                    (License)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(License)));
             }
 
-            return new ApiResponse<License>(localVarStatusCode,
-                localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
-                (License) this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(License)));
+            return new ApiResponse<License>(localVarStatusCode, localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()), null);
         }
 
         public async Task<ApiResponse<LicenseList>> ListLicensesAsyncWithHttpInfo ()
@@ -394,15 +418,20 @@ namespace goldrunnersharp.Api
 
             int localVarStatusCode = (int) localVarResponse.StatusCode;
 
-            if (ExceptionFactory != null)
+            //if (ExceptionFactory != null)
+            //{
+            //    Exception exception = ExceptionFactory("ListLicenses", localVarResponse);
+            //    if (exception != null) throw exception;
+            //}
+
+            if (localVarStatusCode == 200)
             {
-                Exception exception = ExceptionFactory("ListLicenses", localVarResponse);
-                if (exception != null) throw exception;
+                return new ApiResponse<LicenseList>(localVarStatusCode,
+                    localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
+                    (LicenseList)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(LicenseList)));
             }
 
-            return new ApiResponse<LicenseList>(localVarStatusCode,
-                localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
-                (LicenseList) this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(LicenseList)));
+            return new ApiResponse<LicenseList>(localVarStatusCode, localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()), null);
         }
 
     }

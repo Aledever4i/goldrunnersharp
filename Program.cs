@@ -12,6 +12,7 @@ using System.Reactive;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using goldrunnersharp.Model;
+using goldrunnersharp.Api;
 
 namespace goldrunnersharp
 {
@@ -20,10 +21,10 @@ namespace goldrunnersharp
         static void Main(string[] args)
         {
             var address = Environment.GetEnvironmentVariable("ADDRESS");
-            //var address = "asd.com";
 
             UriBuilder myURI = new UriBuilder("http", address, 8000);
-            var client = new Game(myURI.Uri);
+            var api = new DefaultApi(myURI.Uri.AbsoluteUri);
+            var client = new Game(api);
 
             client.Start().Wait();
         }
@@ -37,6 +38,7 @@ namespace goldrunnersharp
         private readonly string Url;
         private readonly HttpClient HttpClient = new HttpClient();
         private License license;
+        private DefaultApi API { get; set; }
 
         //IObservable<Task> ObservedAreas { get; set; }
         //private readonly ConcurrentQueue<Func<Task>> _workItems = new ConcurrentQueue<Func<Task>>();
@@ -45,9 +47,9 @@ namespace goldrunnersharp
         //private int GoldAverage = 0;
         //private int LicenseAverageCost = 0;
 
-        public Game(Uri base_url)
+        public Game(DefaultApi base_url)
         {
-            this.Url = base_url.AbsoluteUri;
+            this.API = base_url;
 
             Task.Factory.StartNew(() =>
             {
@@ -308,20 +310,37 @@ namespace goldrunnersharp
                 {
                     for (int y = 1; y <= 3500; y++)
                     {
-                        var s = await this.Explore(new Area(x, y, 1, 1));
-                        if (s != null && s.Amount > 0)
+                        var s = await this.API.ExploreAreaAsyncWithHttpInfo(new Area(x, y, 1, 1));
+                        if (s.StatusCode == 200 && s.Data != null && s.Data.Amount > 0)
                         {
-                            await this.UpdateLicense();
-                            var left = s.Amount;
-
-                            while (left > 0 && license.DigAllowed > 0 && license.DigUsed < license.DigAllowed)
+                            var money = new Wallet();
+                            var license = await this.API.IssueLicenseAsyncWithHttpInfo(money);
+                            if (license.StatusCode == 200 && license.Data != null)
                             {
-                                for (int i = 1; i <= 10; i++)
+                                this.license = license.Data;
+                            }
+                            else
+                            {
+                                continue;
+                            }
+
+                            var left = s.Data.Amount;
+                            var depth = 1;
+                            while (left > 0 && this.license.DigAllowed > 0 && this.license.DigUsed < this.license.DigAllowed)
+                            {
+                                var treasures = await this.API.DigAsyncWithHttpInfo(new Dig(this.license.Id.Value, x, y, depth));
+                                this.license.DigUsed += 1;
+                                depth += 1;
+
+                                if (treasures.StatusCode == 200 && treasures.Data != null && treasures.Data.Any())
                                 {
-                                    var treasures = await this.Dig(new Dig(this.license.Id.Value, x, y, i));
-                                    foreach (var t in treasures)
+                                    foreach (var t in treasures.Data)
                                     {
-                                        await this.Cash(t);
+                                        var wallet = await this.API.CashAsyncWithHttpInfo(t);
+                                        if (wallet.StatusCode == 200)
+                                        {
+                                            left -= 1;
+                                        }
                                     }
                                 }
                             }
