@@ -64,8 +64,7 @@ namespace goldrunnersharp
     {
         public TriggeredBlockingCollection<Report> exploreQueue = new TriggeredBlockingCollection<Report>();
 
-        public ConcurrentQueue<License> queue = new ConcurrentQueue<License>();
-        public List<License> licenseList = new List<License>();
+        public BlockingCollection<License> licenses = new BlockingCollection<License>();
 
         private DefaultApi API { get; set; }
 
@@ -97,6 +96,11 @@ namespace goldrunnersharp
 
         public async Task<License> UpdateLicense()
         {
+            if (licenses.TryTake(out License license))
+            {
+                return license;
+            }
+
             while (true)
             {
                 try {
@@ -230,7 +234,7 @@ namespace goldrunnersharp
                 {
                     var depth = 1;
 
-                    while (depth <= 9) //left > 0 && 
+                    while (left > 0 && depth <= 10)
                     {
                         while (license.DigUsed >= license.DigAllowed)
                         {
@@ -246,6 +250,11 @@ namespace goldrunnersharp
                             left -= result.Count;
                             this.CashTreasureList(result);
                         }
+                    }
+
+                    if (license.Id != 0 && license.DigUsed < license.DigAllowed)
+                    {
+                        licenses.Add(license);
                     }
                 }
             }
