@@ -48,23 +48,28 @@ namespace goldrunnersharp
         }
     }
 
-    public class ExtendedLicense : License
+    public class ExtendedReport : Report
     {
-        public bool IsUsed { get; set; }
+        public bool Priority { get; set; }
 
-        public ExtendedLicense(License license)
+        public ExtendedReport(Report report)
         {
-            this.Id = license.Id;
-            this.DigUsed = license.DigUsed;
-            this.DigAllowed = license.DigAllowed;
+            this.Amount = report.Amount;
+            this.Area = report.Area;
         }
     }
+
+
 
     public class Game
     {
         public TriggeredBlockingCollection<Report> exploreQueue = new TriggeredBlockingCollection<Report>();
 
         public BlockingCollection<License> licenses = new BlockingCollection<License>();
+        public BlockingCollection<Wallet> wallets = new BlockingCollection<Wallet>();
+
+        private long Money = 0;
+        private readonly object moneyLock = new object();
 
         private DefaultApi API { get; set; }
 
@@ -101,10 +106,17 @@ namespace goldrunnersharp
                 return license;
             }
 
+            var wallet = new Wallet();
+
+            if (wallets.TryTake(out Wallet ws))
+            {
+                wallet = ws;
+            }
+
             while (true)
             {
                 try {
-                    return (await this.API.IssueLicenseAsyncWithHttpInfo(new Wallet())).Data;
+                    return (await this.API.IssueLicenseAsyncWithHttpInfo(wallet)).Data;
                 }
                 catch (ApiException ex)
                 {
@@ -158,6 +170,10 @@ namespace goldrunnersharp
                 try
                 {
                     report = (await this.API.CashAsyncWithHttpInfo(treasure)).Data;
+                    if (report.Sum().HasValue)
+                    {
+                        wallets.Add(report);
+                    }
                 }
                 catch (ApiException ex)
                 {
