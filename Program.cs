@@ -33,7 +33,6 @@ namespace goldrunnersharp
         }
     }
 
-
     class Program
     {
         static void Main(string[] args)
@@ -59,8 +58,6 @@ namespace goldrunnersharp
         }
     }
 
-
-
     public class Game
     {
         public TriggeredBlockingCollection<Report> exploreQueue = new TriggeredBlockingCollection<Report>();
@@ -68,26 +65,15 @@ namespace goldrunnersharp
         public BlockingCollection<License> licenses = new BlockingCollection<License>();
         public BlockingCollection<Wallet> wallets = new BlockingCollection<Wallet>();
 
-        private long Money = 0;
-        private readonly object moneyLock = new object();
-
         private DefaultApi API { get; set; }
 
         private SemaphoreSlim _digSignal;
         private SemaphoreSlim _exploreSignal;
 
-        //private int Chests;
-        //private int MoneyInChests;
-        //private int GoldAverage;
-
         public Game(DefaultApi base_url)
         {
-            //this.Chests = 490000;
-            //this.MoneyInChests = 23030000;
-            //this.GoldAverage = MoneyInChests / Chests;
-
             _digSignal = new SemaphoreSlim(10);
-            _exploreSignal = new SemaphoreSlim(30);
+            _exploreSignal = new SemaphoreSlim(50);
 
             exploreQueue.OnAdd += GoDigEvent;
 
@@ -96,7 +82,7 @@ namespace goldrunnersharp
 
         private void GoDigEvent(object sender, TriggeredBlockingCollectionEventArgs<Report> args)
         {
-            GoDig(args.item).Wait();
+            _ = GoDig(args.item);
         }
 
         public async Task<License> UpdateLicense()
@@ -143,11 +129,12 @@ namespace goldrunnersharp
             {
                 try
                 {
+                    await Task.Delay(100);
                     report = (await this.API.ExploreAreaAsyncWithHttpInfo(area)).Data;
                 }
                 catch (ApiException ex)
                 {
-                    if ((ex.ErrorCode > 500 && ex.ErrorCode < 600) || ex.ErrorCode == 408)
+                    if ((ex.ErrorCode > 500 && ex.ErrorCode < 600) || ex.ErrorCode == 408 || ex.ErrorContent == "The request timed-out.")
                     {
 
                     }
@@ -209,18 +196,24 @@ namespace goldrunnersharp
         private async Task<TreasureList> Dig(Dig dig)
         {
             TreasureList report = null;
+            var digParams = dig;
 
             while (report == null)
             {
                 try
                 {
-                    report = (await this.API.DigAsyncWithHttpInfo(dig)).Data;
+                    report = (await this.API.DigAsyncWithHttpInfo(digParams)).Data;
                 }
                 catch (ApiException ex)
                 {
                     if (ex.ErrorCode > 500 && ex.ErrorCode < 600)
                     {
 
+                    }
+                    else if (ex.ErrorCode == 403)
+                    {
+                        var license = await UpdateLicense();
+                        digParams.LicenseID = license.Id;
                     }
                     else if (ex.ErrorCode == 404)
                     {
@@ -244,13 +237,16 @@ namespace goldrunnersharp
                 _digSignal.Wait();
 
                 var license = new License(0, 0, 0);
-                var left = report.Amount;
+                //var left = report.Amount;
+                var initY = report.Area.PosY.Value;
+                var sizeY = report.Area.SizeY;
 
-                for (int y = report.Area.PosY.Value; y < report.Area.PosY.Value + report.Area.SizeY; y++)
+                for (int y = initY; (y < initY + sizeY); y++) // && left > 0
                 {
+                    var explore = await this.Explore(new Area(report.Area.PosX.Value, y, 1, 1));
                     var depth = 1;
 
-                    while (left > 0 && depth <= 10)
+                    while (depth <= 10 && explore.Amount > 0)
                     {
                         while (license.DigUsed >= license.DigAllowed)
                         {
@@ -263,15 +259,19 @@ namespace goldrunnersharp
 
                         if (result != null)
                         {
-                            left -= result.Count;
+                            //left -= result.Count;
+                            //explore.Amount -= result.Count;
                             this.CashTreasureList(result);
+
+                            if (license.Id != 0 && license.DigUsed < license.DigAllowed)
+                            {
+                                licenses.Add(license);
+                            }
+
+                            return;
                         }
                     }
 
-                    if (license.Id != 0 && license.DigUsed < license.DigAllowed)
-                    {
-                        licenses.Add(license);
-                    }
                 }
             }
             finally
@@ -286,9 +286,9 @@ namespace goldrunnersharp
             {
                 _exploreSignal.Wait();
 
-                foreach (var range in Enumerable.Range(0, 3500))
+                foreach (var range in Enumerable.Range(0, 700))
                 {
-                    var explore = await this.Explore(new Area(x, range, 1, 1));
+                    var explore = await this.Explore(new Area(x, range * 5, 1, 5));
 
                     if (explore.Amount > 0)
                     {
