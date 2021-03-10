@@ -1,21 +1,39 @@
-﻿using Newtonsoft.Json;
-using System;
+﻿using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Net;
-using System.Net.Http;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
-using System.Reactive;
 using System.Reactive.Linq;
-using System.Reactive.Subjects;
 using goldrunnersharp.Model;
 using goldrunnersharp.Api;
+using goldrunnersharp.Client;
+using System.Collections.Generic;
 
 namespace goldrunnersharp
 {
+    public class TriggeredBlockingCollectionEventArgs<T> : EventArgs
+    {
+        public T item { get; set; }
+
+        public TriggeredBlockingCollectionEventArgs(T item)
+        {
+            this.item = item;
+        }
+    }
+
+    public class TriggeredBlockingCollection<T>
+    {
+        public BlockingCollection<T> exploreQueue = new BlockingCollection<T>();
+
+        public event EventHandler<TriggeredBlockingCollectionEventArgs<T>> OnAdd;
+
+        public void Add(T item)
+        {
+            OnAdd(this, new TriggeredBlockingCollectionEventArgs<T>(item));
+        }
+    }
+
+
     class Program
     {
         static void Main(string[] args)
@@ -26,361 +44,250 @@ namespace goldrunnersharp
             var api = new DefaultApi(myURI.Uri.AbsoluteUri);
             var client = new Game(api);
 
-            client.Start().Wait();
-            client.HttpClient.Dispose();
+            client.Start();
+        }
+    }
+
+    public class ExtendedLicense : License
+    {
+        public bool IsUsed { get; set; }
+
+        public ExtendedLicense(License license)
+        {
+            this.Id = license.Id;
+            this.DigUsed = license.DigUsed;
+            this.DigAllowed = license.DigAllowed;
         }
     }
 
     public class Game
     {
-        public BlockingCollection<Task> areasQueue = new BlockingCollection<Task>();
-        public BlockingCollection<Task<Report>> exploreQueue = new BlockingCollection<Task<Report>>();
+        public TriggeredBlockingCollection<Report> exploreQueue = new TriggeredBlockingCollection<Report>();
 
-        private readonly string Url;
-        public readonly HttpClient HttpClient = new HttpClient();
-
-        private License license;
+        public ConcurrentQueue<License> queue = new ConcurrentQueue<License>();
+        public List<License> licenseList = new List<License>();
 
         private DefaultApi API { get; set; }
 
-        //IObservable<Task> ObservedAreas { get; set; }
-        //private readonly ConcurrentQueue<Func<Task>> _workItems = new ConcurrentQueue<Func<Task>>();
-        //private readonly List<Task> _runItems = new List<Task>();
-        //
-        //private int LicenseAverageCost = 0;
+        private SemaphoreSlim _digSignal;
+        private SemaphoreSlim _exploreSignal;
 
-        private readonly SemaphoreSlim _licenseSignal = new SemaphoreSlim(0, 1);
-
-        private int Chests;
-        private int MoneyInChests;
-        private int GoldAverage;
+        //private int Chests;
+        //private int MoneyInChests;
+        //private int GoldAverage;
 
         public Game(DefaultApi base_url)
         {
-            this.Chests = 490000;
-            this.MoneyInChests = 23030000;
-            this.GoldAverage = MoneyInChests / Chests;
+            //this.Chests = 490000;
+            //this.MoneyInChests = 23030000;
+            //this.GoldAverage = MoneyInChests / Chests;
+
+            _digSignal = new SemaphoreSlim(10);
+            _exploreSignal = new SemaphoreSlim(30);
+
+            exploreQueue.OnAdd += GoDigEvent;
 
             this.API = base_url;
-
-            //Task.Factory.StartNew(() =>
-            //{
-            //    while (true)
-            //    {
-            //        if (_licenseSignal.CurrentCount == 0 && this.license.DigAllowed - this.license.DigUsed <= 1)
-            //        {
-            //            _licenseSignal.Wait();
-            //            try
-            //            {
-            //                var license = this.API.IssueLicenseAsyncWithHttpInfo(new Wallet()).Result;
-            //                if (license.Data.Id > 0 && license.Data.DigAllowed > 0)
-            //                {
-            //                    this.license = license.Data;
-            //                }
-            //            }
-            //            finally
-            //            {
-            //                _licenseSignal.Release();
-            //            }
-            //        }
-            //    }
-            //});
-
-
-            //Task.Factory.StartNew(() =>
-            //{
-            //    while (true)
-            //    {
-            //        try
-            //        {
-            //            var action = areasQueue.Take();
-            //            action.Wait();
-            //        }
-            //        catch (InvalidOperationException)
-            //        {
-            //            break;
-            //        }
-            //    }
-            //});
-
-
-            //Task.Factory.StartNew(() =>
-            //{
-            //    while (true)
-            //    {
-            //        try
-            //        {
-            //            var result = exploreQueue.Take().Result;
-
-            //            if (result != null)
-            //            {
-            //                while (!isAreaOpen())
-            //                {
-            //                    Task.Delay(105).Wait();
-            //                }
-
-            //                areasQueue.Append(this.AfterExplore(result.Area.PosX.Value, result.Area.PosY.Value, result.Amount));
-            //            }
-            //        }
-            //        catch (InvalidOperationException)
-            //        {
-            //            break;
-            //        }
-            //    }
-            //});
         }
 
-        private async Task<IEnumerable<int>> Cash(string treasure)
+        private void GoDigEvent(object sender, TriggeredBlockingCollectionEventArgs<Report> args)
         {
-            try
-            {
-                var request = await this.HttpClient.PostAsync($"{Url}/cash", new StringContent(treasure, Encoding.UTF8, "application/json"));
-
-                if (request.StatusCode == HttpStatusCode.OK)
-                {
-                    var jsonString = await request.Content.ReadAsStringAsync();
-                    var wallet = JsonConvert.DeserializeObject<IEnumerable<int>>(jsonString);
-
-                    return wallet;
-                }
-
-                return Array.Empty<int>();
-            }
-            catch (Exception e)
-            {
-                return Array.Empty<int>();
-            }
+            GoDig(args.item).Wait();
         }
 
-        private async Task GetBalance()
+        public async Task<License> UpdateLicense()
         {
-            try
-            {
-                var request = await this.HttpClient.GetAsync($"{Url}/balance");
-
-                if (request.StatusCode == HttpStatusCode.OK)
-                {
-                    // _json = await resp.json()
-                    //wallet = Wallet(**_json)
-                }
-                else if (request.StatusCode != HttpStatusCode.OK)
-                {
-                    // запросить лицензию
-                }
-            }
-            catch (Exception e)
-            {
-                return;
-            }
-        }
-
-        // Может быть вернётся null
-        private async Task<License> BuyLicense(Wallet wallet)
-        {
-            try
-            {
-                var request = await this.HttpClient.PostAsync($"{Url}/licenses", new StringContent(JsonConvert.SerializeObject(wallet), Encoding.UTF8, "application/json"));
-
-                if (request.StatusCode == HttpStatusCode.OK)
-                {
-                    var jsonString = await request.Content.ReadAsStringAsync();
-                    return JsonConvert.DeserializeObject<License>(jsonString);
-                }
-
-                return null;
-            }
-            catch (Exception e)
-            {
-                return null;
-            }
-        }
-
-        // Optional[List[License]]
-        private async Task GetLicenseList()
-        {
-            try
-            {
-                var request = await this.HttpClient.GetAsync($"{Url}/licenses");
-
-                if (request.StatusCode == HttpStatusCode.OK)
-                {
-                    //_json = await resp.json()
-                    //license_list = [License(**item) for item in _json]
-                    //return license_list
-                }
-                else if (request.StatusCode != HttpStatusCode.OK)
-                {
-                    // запросить лицензию
-                }
-            }
-            catch (Exception e)
-            {
-                return;
-            }
-        }
-
-        public bool isExploreOpen()
-        {
-            return exploreQueue.Count <= 2;
-        }
-
-        public bool isAreaOpen()
-        {
-            return areasQueue.Count <= 2;
-        }
-
-        public async Task UpdateLicense()
-        {
-            while (this.license.DigUsed >= this.license.DigAllowed || this.license.Id == 0)
-            {
-                var license = await this.API.IssueLicenseAsyncWithHttpInfo(new Wallet());
-                this.license = license.Data;
-            }
-
-            //if (this.license.DigAllowed - this.license.DigUsed == 1)
-            //{
-            //    var license = this.API.IssueLicenseAsyncWithHttpInfo(new Wallet()).Result;
-            //    if (license.Data.Id > 0 && license.Data.DigAllowed > 0)
-            //    {
-            //        this.license = license.Data;
-            //    }
-            //}
-        }
-
-        public async Task<Report> Explore(Area area)
-        {
-            var tries = 0;
-
             while (true)
             {
-                tries++;
-
-                if (tries > 5)
-                {
-                    return null;
+                try {
+                    return (await this.API.IssueLicenseAsyncWithHttpInfo(new Wallet())).Data;
                 }
-
-                var explore = await this.API.ExploreAreaAsyncWithHttpInfo(area);
-
-                if (explore.StatusCode == 200 && explore.Data != null)
+                catch (ApiException ex)
                 {
-                    return explore.Data;
-                }
-            }
-        }
-
-        private Task Cash(TreasureList treasure)
-        {
-            return Task.Factory.StartNew(() => {
-                foreach (var t in treasure)
-                {
-                    this.API.CashAsyncWithHttpInfo(t);
-                }
-            });
-        }
-
-        public async Task GoExplore(int fromX, int toX)
-        {
-            var license = new License(0, 0, 0);
-            while (license.DigUsed >= license.DigAllowed || license.Id == 0)
-            {
-                license = (await this.API.IssueLicenseAsyncWithHttpInfo(new Wallet())).Data;
-            }
-
-            for (int x = fromX; x <= toX; x += 1)
-            {
-                for (int y = 1; y <= 3500; y++)
-                {
-                    var explore = await this.Explore(new Area(x, y, 1, 1));
-                    if (explore != null && explore.Amount > 0) // && explore.Amount > this.GoldAverage * 2
+                    if (
+                        (ex.ErrorCode > 500 && ex.ErrorCode < 600)
+                        || (ex.ErrorContent == "An error occurred while sending the request. The response ended prematurely.")
+                        || (ex.ErrorContent == "Connection refused Connection refused")
+                    )
                     {
-                        var left = explore.Amount;
-                        var depth = 1;
-
-                        while (left > 0 && depth <= 10)
-                        {
-                            while (license.DigUsed >= license.DigAllowed || license.Id == 0)
-                            {
-                                license = (await this.API.IssueLicenseAsyncWithHttpInfo(new Wallet())).Data;
-                            }
-
-                            var treasures = await this.API.DigAsyncWithHttpInfo(new Dig(license.Id.Value, x, y, depth));
-                            license.DigUsed += 1;
-                            depth += 1;
-
-                            if (treasures.StatusCode == 200 && treasures.Data != null)
-                            {
-                                left -= treasures.Data.Count;
-                                if (treasures.Data.Count > 0)
-                                {
-                                    await this.Cash(treasures.Data);
-                                }
-                            }
-                        }
+                    }
+                    else
+                    {
+                        throw ex;
                     }
                 }
             }
         }
 
-        public Task Start()
+        public async Task<Report> Explore(Area area)
         {
-            var task1 = this.GoExplore(1, 1000);
-            var task2 = this.GoExplore(1001, 2000);
-            var task3 = this.GoExplore(2001, 3000);
-            var task4 = this.GoExplore(3001, 3500);
+            Report report = null;
 
-            return Task.WhenAll(task1, task2, task3, task4);
+            while (report == null)
+            {
+                try
+                {
+                    report = (await this.API.ExploreAreaAsyncWithHttpInfo(area)).Data;
+                }
+                catch (ApiException ex)
+                {
+                    if ((ex.ErrorCode > 500 && ex.ErrorCode < 600) || ex.ErrorCode == 408)
+                    {
 
-            //this.license = new License(0, 0, 0);
-            //try
-            //{
-            //    for (int x = 1; x <= 3500; x += 1)
-            //    {
-            //        for (int y = 1; y <= 3500; y++)
-            //        {
-            //            var explore = await this.Explore(new Area(x, y, 1, 1));
-            //            if (explore != null && explore.Amount >= 2) // && explore.Amount > this.GoldAverage * 2
-            //            {
-            //                //var ter = 0;
-            //                //while (ter <= 0)
-            //                //{
-            //                    //explore = await this.Explore(new Area(x + ter, y, 1, 1));
-            //                    //if (explore != null && explore.Amount > 0)
-            //                    //{
-            //                        //ter++;
-            //                        var left = explore.Amount;
-            //                        var depth = 1;
+                    }
+                    else
+                    {
+                        throw ex;
+                    }
+                }
+            }
 
-            //                        while (left > 0 && depth <= 10)
-            //                        {
-            //                            //if (this.license.DigAllowed - this.license.DigUsed <= 1)
-            //                            //{
-            //                            //    _ = this.UpdateLicense();
-            //                            //}
-            //                            //else if (this.license.DigAllowed - this.license.DigUsed == 0)
-            //                            //{
-            //                            await this.UpdateLicense();
-            //                            //}
+            return report;
+        }
 
-            //                            var treasures = await this.API.DigAsyncWithHttpInfo(new Dig(this.license.Id.Value, x, y, depth));
-            //                            this.license.DigUsed += 1;
-            //                            depth += 1;
+        private async Task<Wallet> CashTreasure(string treasure)
+        {
+            Wallet report = null;
 
-            //                            if (treasures.StatusCode == 200 && treasures.Data != null)
-            //                            {
-            //                                left -= treasures.Data.Count;
-            //                                if (treasures.Data.Count > 0)
-            //                                {
-            //                                    _ = this.Cash(treasures.Data);
-            //                                }
-            //                            }
-            //                        }
-            //                    //}
-            //                //}
-            //            }
-            //        }
-            //    }
-            //}
+            while (report == null)
+            {
+                try
+                {
+                    report = (await this.API.CashAsyncWithHttpInfo(treasure)).Data;
+                }
+                catch (ApiException ex)
+                {
+                    if (ex.ErrorCode > 500 && ex.ErrorCode < 600)
+                    {
+
+                    }
+                    else if (ex.ErrorCode == 409)
+                    {
+                        throw new Exception(treasure, ex);
+                    }
+                    else
+                    {
+                        throw ex;
+                    }
+                }
+            }
+
+            return report;
+
+        }
+
+        private void CashTreasureList(TreasureList treasures)
+        {
+            Task.WaitAll(
+                treasures.Select((treasure) =>
+                {
+                    return CashTreasure(treasure);
+                }).ToArray()
+            );
+        }
+
+        private async Task<TreasureList> Dig(Dig dig)
+        {
+            TreasureList report = null;
+
+            while (report == null)
+            {
+                try
+                {
+                    report = (await this.API.DigAsyncWithHttpInfo(dig)).Data;
+                }
+                catch (ApiException ex)
+                {
+                    if (ex.ErrorCode > 500 && ex.ErrorCode < 600)
+                    {
+
+                    }
+                    else if (ex.ErrorCode == 404)
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        throw ex;
+                    }
+                }
+            }
+
+            return report;
+            
+        }
+
+        public async Task GoDig(Report report)
+        {
+            try
+            {
+                _digSignal.Wait();
+
+                var license = new License(0, 0, 0);
+                var left = report.Amount;
+
+                for (int y = report.Area.PosY.Value; y < report.Area.PosY.Value + report.Area.SizeY; y++)
+                {
+                    var depth = 1;
+
+                    while (depth <= 9) //left > 0 && 
+                    {
+                        while (license.DigUsed >= license.DigAllowed)
+                        {
+                            license = await UpdateLicense();
+                        }
+
+                        var result = await Dig(new Dig(license.Id.Value, report.Area.PosX.Value, y, depth));
+                        license.DigUsed += 1;
+                        depth += 1;
+
+                        if (result != null)
+                        {
+                            left -= result.Count;
+                            this.CashTreasureList(result);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _digSignal.Release();
+            }
+        }
+
+        public async Task BigExplore(int x)
+        {
+            try
+            {
+                _exploreSignal.Wait();
+
+                foreach (var range in Enumerable.Range(0, 3500))
+                {
+                    var explore = await this.Explore(new Area(x, range, 1, 1));
+
+                    if (explore.Amount > 0)
+                    {
+                        exploreQueue.Add(explore);
+                    }
+                }
+            }
+            finally
+            {
+                _exploreSignal.Release();
+            }
+        }
+
+        public void Start()
+        {
+            var tasks = new List<Task>();
+
+            foreach (var x in Enumerable.Range(0, 3500))
+            {
+                var task = BigExplore(x);
+                tasks.Add(task);
+            }
+
+            Task.WaitAll(tasks.ToArray());
         }
     
         

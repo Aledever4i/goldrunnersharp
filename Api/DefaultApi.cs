@@ -92,20 +92,15 @@ namespace goldrunnersharp.Api
 
             int localVarStatusCode = (int) localVarResponse.StatusCode;
 
-            //if (ExceptionFactory != null)
-            //{
-            //    Exception exception = ExceptionFactory("Cash", localVarResponse);
-            //    if (exception != null) throw exception;
-            //}
-            if (localVarStatusCode == 200)
+            if (ExceptionFactory != null)
             {
-                return new ApiResponse<Wallet>(localVarStatusCode,
-                    localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
-                    (Wallet)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(Wallet)));
+                Exception exception = ExceptionFactory("Cash", localVarResponse);
+                if (exception != null) throw exception;
             }
 
-            return new ApiResponse<Wallet>(localVarStatusCode, localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()), null);
-
+            return new ApiResponse<Wallet>(localVarStatusCode,
+                localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
+                (Wallet)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(Wallet)));
         }
 
         public async Task<ApiResponse<TreasureList>> DigAsyncWithHttpInfo (Dig args)
@@ -149,20 +144,15 @@ namespace goldrunnersharp.Api
 
             int localVarStatusCode = (int) localVarResponse.StatusCode;
 
-            //if (ExceptionFactory != null)
-            //{
-            //    Exception exception = ExceptionFactory("Dig", localVarResponse);
-            //    if (exception != null) throw exception;
-            //}
-            if (localVarStatusCode == 200)
+            if (ExceptionFactory != null)
             {
-                return new ApiResponse<TreasureList>(localVarStatusCode,
-                    localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
-                    (TreasureList)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(TreasureList)));
+                Exception exception = ExceptionFactory("Dig", localVarResponse);
+                if (exception != null) throw exception;
             }
 
-            return new ApiResponse<TreasureList>(localVarStatusCode, localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()), null);
-
+            return new ApiResponse<TreasureList>(localVarStatusCode,
+                localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
+                (TreasureList)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(TreasureList)));
         }
 
         public async Task<ApiResponse<Report>> ExploreAreaAsyncWithHttpInfo (Area args)
@@ -206,21 +196,15 @@ namespace goldrunnersharp.Api
 
             int localVarStatusCode = (int) localVarResponse.StatusCode;
 
-            //if (ExceptionFactory != null)
-            //{
-            //    Exception exception = ExceptionFactory("ExploreArea", localVarResponse);
-            //    if (exception != null) throw exception;
-            //}
-
-            if (localVarStatusCode == 200)
+            if (ExceptionFactory != null)
             {
-                return new ApiResponse<Report>(localVarStatusCode,
-                    localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
-                    (Report)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(Report)));
+                Exception exception = ExceptionFactory("ExploreArea", localVarResponse);
+                if (exception != null) throw exception;
             }
 
-            return new ApiResponse<Report>(localVarStatusCode, localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()), null);
-
+            return new ApiResponse<Report>(localVarStatusCode,
+                localVarResponse.Headers.ToDictionary(x => x.Name, x => x.Value.ToString()),
+                (Report)this.Configuration.ApiClient.Deserialize(localVarResponse, typeof(Report)));
         }
 
         public async Task<ApiResponse<Balance>> GetBalanceAsyncWithHttpInfo ()
@@ -368,11 +352,11 @@ namespace goldrunnersharp.Api
 
             int localVarStatusCode = (int) localVarResponse.StatusCode;
 
-            //if (ExceptionFactory != null)
-            //{
-            //    Exception exception = ExceptionFactory("IssueLicense", localVarResponse);
-            //    if (exception != null) throw exception;
-            //}
+            if (ExceptionFactory != null)
+            {
+                Exception exception = ExceptionFactory("IssueLicense", localVarResponse);
+                if (exception != null) throw exception;
+            }
 
             if (localVarStatusCode == 200)
             {
