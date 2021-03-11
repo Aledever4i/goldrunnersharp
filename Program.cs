@@ -27,8 +27,11 @@ namespace goldrunnersharp
 
         public event EventHandler<TriggeredBlockingCollectionEventArgs<T>> OnAdd;
 
+        public int Count { get; set; } = 0;
+
         public void Add(T item)
         {
+            Count++;
             OnAdd(this, new TriggeredBlockingCollectionEventArgs<T>(item));
         }
     }
@@ -43,7 +46,7 @@ namespace goldrunnersharp
             var api = new DefaultApi(myURI.Uri.AbsoluteUri);
             var client = new Game(api);
 
-            client.Start();
+            client.Start().Wait();
         }
     }
 
@@ -60,7 +63,7 @@ namespace goldrunnersharp
 
     public class Game
     {
-        public TriggeredBlockingCollection<Report> exploreQueue = new TriggeredBlockingCollection<Report>();
+        //public TriggeredBlockingCollection<Report> exploreQueue = new TriggeredBlockingCollection<Report>();
 
         public BlockingCollection<License> licenses = new BlockingCollection<License>();
         public BlockingCollection<Wallet> wallets = new BlockingCollection<Wallet>();
@@ -73,17 +76,46 @@ namespace goldrunnersharp
         public Game(DefaultApi base_url)
         {
             _digSignal = new SemaphoreSlim(10);
-            _exploreSignal = new SemaphoreSlim(50);
+            _exploreSignal = new SemaphoreSlim(200);
 
-            exploreQueue.OnAdd += GoDigEvent;
+            //exploreQueue.OnAdd += GoDigEvent;
 
             this.API = base_url;
         }
 
-        private void GoDigEvent(object sender, TriggeredBlockingCollectionEventArgs<Report> args)
-        {
-            _ = GoDig(args.item);
-        }
+        //private void GoDigEvent(object sender, TriggeredBlockingCollectionEventArgs<Report> args)
+        //{
+        //    _ = GoDig(args.item);
+        //}
+
+        //public Task GetLicense()
+        //{
+        //    var wallet = new Wallet();
+
+        //    if (wallets.TryTake(out Wallet ws))
+        //    {
+        //        wallet = ws;
+        //    }
+
+        //    try
+        //    {
+        //        return this.API.IssueLicenseAsyncWithHttpInfo(wallet).ContinueWith((license) => { this.licenses.Add(license.Result.Data); });
+        //    }
+        //    catch (ApiException ex)
+        //    {
+        //        if (
+        //            (ex.ErrorCode > 500 && ex.ErrorCode < 600)
+        //            || (ex.ErrorContent == "An error occurred while sending the request. The response ended prematurely.")
+        //            || (ex.ErrorContent == "Connection refused Connection refused")
+        //        )
+        //        {
+        //        }
+        //        else
+        //        {
+        //            throw ex;
+        //        }
+        //    }
+        //}
 
         public async Task<License> UpdateLicense()
         {
@@ -129,12 +161,11 @@ namespace goldrunnersharp
             {
                 try
                 {
-                    await Task.Delay(100);
                     report = (await this.API.ExploreAreaAsyncWithHttpInfo(area)).Data;
                 }
                 catch (ApiException ex)
                 {
-                    if ((ex.ErrorCode > 500 && ex.ErrorCode < 600) || ex.ErrorCode == 408 || ex.ErrorContent == "The request timed-out.")
+                    if ((ex.ErrorCode > 500 && ex.ErrorCode < 600) || ex.ErrorCode == 408 || ex.ErrorContent == "The request timed-out." || ex.ErrorContent == "Connection refused Connection refused")
                     {
 
                     }
@@ -236,19 +267,24 @@ namespace goldrunnersharp
             {
                 _digSignal.Wait();
 
-                var license = new License(0, 0, 0);
-                //var left = report.Amount;
+                var license = await UpdateLicense();
+                var left = report.Amount;
                 var initY = report.Area.PosY.Value;
                 var sizeY = report.Area.SizeY;
 
-                for (int y = initY; (y < initY + sizeY); y++) // && left > 0
+                for (int y = initY; (y < initY + sizeY); y++)
                 {
-                    var explore = await this.Explore(new Area(report.Area.PosX.Value, y, 1, 1));
+                    if (left <= 0)
+                    {
+                        break;
+                    }
+
+                    //var explore = await this.Explore(new Area(report.Area.PosX.Value, y, 1, 1));
                     var depth = 1;
 
-                    while (depth <= 10 && explore.Amount > 0)
+                    while (depth <= 10) // && explore.Amount > 0
                     {
-                        while (license.DigUsed >= license.DigAllowed)
+                        if (license.DigUsed >= license.DigAllowed)
                         {
                             license = await UpdateLicense();
                         }
@@ -259,19 +295,28 @@ namespace goldrunnersharp
 
                         if (result != null)
                         {
-                            //left -= result.Count;
                             //explore.Amount -= result.Count;
-                            this.CashTreasureList(result);
 
-                            if (license.Id != 0 && license.DigUsed < license.DigAllowed)
+                            left -= result.Count;
+                            foreach (var treasure in result)
                             {
-                                licenses.Add(license);
+                                await CashTreasure(treasure);
                             }
+                            //this.CashTreasureList(result);
 
-                            return;
+                            break;
                         }
                     }
 
+                    //if (explore.Amount > 0)
+                    //{
+                    //    left -= explore.Amount;
+                    //}
+                }
+
+                if (license.DigUsed < license.DigAllowed)
+                {
+                    licenses.Add(license);
                 }
             }
             finally
@@ -286,13 +331,13 @@ namespace goldrunnersharp
             {
                 _exploreSignal.Wait();
 
-                foreach (var range in Enumerable.Range(0, 700))
+                foreach (var range in Enumerable.Range(0, 3500))
                 {
-                    var explore = await this.Explore(new Area(x, range * 5, 1, 5));
+                    var explore = await this.Explore(new Area(x, range, 1, 1));
 
                     if (explore.Amount > 0)
                     {
-                        exploreQueue.Add(explore);
+                        _ = GoDig(explore);
                     }
                 }
             }
@@ -302,20 +347,121 @@ namespace goldrunnersharp
             }
         }
 
-        public void Start()
+        public async Task Start()
         {
             var tasks = new List<Task>();
 
             foreach (var x in Enumerable.Range(0, 3500))
             {
-                var task = BigExplore(x);
-                tasks.Add(task);
+                tasks.Add(BigExplore(x));
             }
 
             Task.WaitAll(tasks.ToArray());
+
+
+            //var tasks = new List<Task>();
+            //var searchTask = new List<Task>();
+
+            //foreach (var x in Enumerable.Range(0, 3500))
+            //{
+            //    if (searchTask.Count > 1000000)
+            //    {
+            //        break;
+            //    }
+
+            //    foreach (var y in Enumerable.Range(0, 3500))
+            //    {
+            //        try
+            //        {
+            //            _exploreSignal.Wait();
+
+            //            _ = Task.Run(() =>
+            //            {
+            //                var explore = this.Explore(new Area(x, y, 1, 1)).ContinueWith(async (result) =>
+            //                {
+            //                    if (result.Result.Amount > 0)
+            //                    {
+            //                        await GoDig(result.Result);
+            //                    }
+            //                });
+
+            //                searchTask.Add(explore);
+            //            });
+            //        }
+            //        finally
+            //        {
+            //            _exploreSignal.Release();
+            //        }
+            //    }
+            //}
+
+            //Task.WaitAll(searchTask.ToArray());
+            //Task.WaitAll(tasks.ToArray());
+
+
+            //foreach (var x in Enumerable.Range(0, 3500))
+            //{
+            //    foreach (var y in Enumerable.Range(0, 3500))
+            //    {
+            //        if (tasks.Count > 50000)
+            //        {
+            //            break;
+            //        }
+
+            //        try
+            //        {
+            //            await _exploreSignal.WaitAsync();
+
+            //            var explore = await this.Explore(new Area(x, y, 1, 1));
+
+            //            if (explore.Amount > 0)
+            //            {
+            //                var t = GoDig(explore);
+            //                tasks.Add(t);
+            //            }
+            //        } 
+            //        finally
+            //        { 
+            //            _exploreSignal.Release();
+            //        }
+            //    }
+            //}
+
+
+            //var t = Enumerable.Range(0, 3500).Select((x) =>
+            //{
+            //    return Task.Run(async () => {
+            //        try
+            //        {
+            //            await _exploreSignal.WaitAsync();
+
+            //            foreach (var range in Enumerable.Range(0, 3500))
+            //            {
+            //                if (tasks.Count > 50000)
+            //                {
+            //                    break;
+            //                }
+
+            //                var explore = await this.Explore(new Area(x, range, 1, 1));
+
+            //                if (explore.Amount > 0)
+            //                {
+            //                    tasks.Add(GoDig(explore));
+            //                }
+            //            }
+
+            //            //var task = BigExplore(x);
+            //            //tasks.Add(task);
+            //        }
+            //        finally
+            //        {
+            //            _exploreSignal.Release();
+            //        }
+            //    });
+            //}).ToArray();
+
+            //Task.WaitAll(t);
         }
-    
-        
     }
 
     public static class TaskEx
