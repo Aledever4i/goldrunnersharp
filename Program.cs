@@ -27,11 +27,8 @@ namespace goldrunnersharp
 
         public event EventHandler<TriggeredBlockingCollectionEventArgs<T>> OnAdd;
 
-        public int Count { get; set; } = 0;
-
         public void Add(T item)
         {
-            Count++;
             OnAdd(this, new TriggeredBlockingCollectionEventArgs<T>(item));
         }
     }
@@ -63,10 +60,15 @@ namespace goldrunnersharp
 
     public class Game
     {
-        public TriggeredBlockingCollection<Report> exploreQueue = new TriggeredBlockingCollection<Report>();
+        public BlockingCollection<Report> exploreQueue = new BlockingCollection<Report>();
+        //public TriggeredBlockingCollection<Report> exploreQueue = new TriggeredBlockingCollection<Report>();
 
         public BlockingCollection<License> licenses = new BlockingCollection<License>();
         public BlockingCollection<Wallet> wallets = new BlockingCollection<Wallet>();
+
+        private Thread treadDig { get; set; }
+
+        private const double Percent = 0.04;
 
         private DefaultApi API { get; set; }
 
@@ -76,17 +78,31 @@ namespace goldrunnersharp
         public Game(DefaultApi base_url)
         {
             _digSignal = new SemaphoreSlim(10);
-            _exploreSignal = new SemaphoreSlim(200);
+            _exploreSignal = new SemaphoreSlim(30);
 
-            exploreQueue.OnAdd += GoDigEvent;
+            //exploreQueue.OnAdd += GoDigEvent;
 
             this.API = base_url;
+
+            treadDig = new Thread(processDig);
+            treadDig.Start();
         }
 
-        private void GoDigEvent(object sender, TriggeredBlockingCollectionEventArgs<Report> args)
+        public void processDig()
         {
-            _ = GoDig(args.item);
+            while (true)
+            {
+                if (exploreQueue.TryTake(out Report item))
+                {
+                    _ = GoDig(item);
+                }
+            }
         }
+
+        //private void GoDigEvent(object sender, TriggeredBlockingCollectionEventArgs<Report> args)
+        //{
+        //    GoDig(args.item).Wait();
+        //}
 
         //public Task GetLicense()
         //{
@@ -142,6 +158,7 @@ namespace goldrunnersharp
                         (ex.ErrorCode > 500 && ex.ErrorCode < 600)
                         || (ex.ErrorContent == "An error occurred while sending the request. The response ended prematurely.")
                         || (ex.ErrorContent == "Connection refused Connection refused")
+                        || (ex.ErrorContent == "The operation has timed out.")
                     )
                     {
                     }
@@ -269,49 +286,42 @@ namespace goldrunnersharp
 
                 var license = await UpdateLicense();
                 var left = report.Amount;
+
+                var initX = report.Area.PosX.Value;
+                var sizeX = report.Area.SizeX;
+
                 var initY = report.Area.PosY.Value;
                 var sizeY = report.Area.SizeY;
 
-                for (int y = initY; (y < initY + sizeY); y++)
+                for (int x = initX; x < (initX + sizeX) && left > 0; x++)
                 {
-                    if (left <= 0)
+                    for (int y = initY; y < (initY + sizeY) && left > 0; y++)
                     {
-                        break;
-                    }
+                        var explore = await this.Explore(new Area(x, y, 1, 1));
+                        var depth = 1;
 
-                    //var explore = await this.Explore(new Area(report.Area.PosX.Value, y, 1, 1));
-                    var depth = 1;
-
-                    while (depth <= 10) // && explore.Amount > 0
-                    {
-                        if (license.DigUsed >= license.DigAllowed)
+                        while (depth <= 10 && left > 0 && explore.Amount > 0)
                         {
-                            license = await UpdateLicense();
-                        }
-
-                        var result = await Dig(new Dig(license.Id.Value, report.Area.PosX.Value, y, depth));
-                        license.DigUsed += 1;
-                        depth += 1;
-
-                        if (result != null)
-                        {
-                            //explore.Amount -= result.Count;
-
-                            left -= result.Count;
-                            foreach (var treasure in result)
+                            if (license.DigUsed >= license.DigAllowed)
                             {
-                                await CashTreasure(treasure);
+                                license = await UpdateLicense();
                             }
-                            //this.CashTreasureList(result);
 
-                            break;
+                            var result = await Dig(new Dig(license.Id.Value, x, y, depth));
+                            license.DigUsed += 1;
+                            depth += 1;
+
+                            if (result != null)
+                            {
+                                explore.Amount -= result.Count;
+                                left -= result.Count;
+                                foreach (var treasure in result)
+                                {
+                                    await CashTreasure(treasure);
+                                }
+                            }
                         }
                     }
-
-                    //if (explore.Amount > 0)
-                    //{
-                    //    left -= explore.Amount;
-                    //}
                 }
 
                 if (license.DigUsed < license.DigAllowed)
@@ -325,25 +335,49 @@ namespace goldrunnersharp
             }
         }
 
-        public async Task BigExplore(int x)
+        //public async Task BigExplore(int x)
+        //{
+        //    try
+        //    {
+        //        _exploreSignal.Wait();
+
+        //        foreach (var range in Enumerable.Range(0, 3500))
+        //        {
+        //            var explore = await this.Explore(new Area(x, range, 1, 1));
+
+        //            if (explore.Amount > 0)
+        //            {
+        //                exploreQueue.Add(explore);
+        //            }
+        //        }
+        //    }
+        //    finally
+        //    {
+        //        _exploreSignal.Release();
+        //    }
+        //}
+
+        public async Task Xy(Area area, int line)
         {
-            try
-            {
-                _exploreSignal.Wait();
+            var explore = await this.Explore(new Area(area.PosX, area.PosY, area.SizeX, area.SizeY));
 
-                foreach (var range in Enumerable.Range(0, 3500))
+            if (explore.Amount >= line * line * Percent)
+            {
+                if (line == 16)
                 {
-                    var explore = await this.Explore(new Area(x, range, 1, 1));
-
-                    if (explore.Amount > 0)
-                    {
-                        exploreQueue.Add(explore);
-                    }
+                    exploreQueue.Add(explore);
                 }
-            }
-            finally
-            {
-                _exploreSignal.Release();
+                else
+                {
+                    var newLine = line / 2;
+
+                    var task1 = Xy(new Area(area.PosX, area.PosY, newLine, newLine), newLine);
+                    var task2 = Xy(new Area(area.PosX + newLine, area.PosY, newLine, newLine), newLine);
+                    var task3 = Xy(new Area(area.PosX, area.PosY + newLine, newLine, newLine), newLine);
+                    var task4 = Xy(new Area(area.PosX + newLine, area.PosY + newLine, newLine, newLine), newLine);
+
+                    await Task.WhenAll(task1, task2, task3, task4);
+                }
             }
         }
 
@@ -351,12 +385,15 @@ namespace goldrunnersharp
         {
             var tasks = new List<Task>();
 
-            foreach (var x in Enumerable.Range(0, 3500))
+            foreach (var x in Enumerable.Range(0, 27))
             {
-                tasks.Add(BigExplore(x));
+                foreach (var y in Enumerable.Range(0, 27))
+                {
+                    await Xy(new Area(x * 128, y * 128, 128, 128), 128);
+                }
             }
 
-            Task.WaitAll(tasks.ToArray());
+            await Task.WhenAll(tasks.ToArray());  
 
 
             //var tasks = new List<Task>();
