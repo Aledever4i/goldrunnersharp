@@ -63,7 +63,7 @@ namespace goldrunnersharp
 
     public class Game
     {
-        //public TriggeredBlockingCollection<Report> exploreQueue = new TriggeredBlockingCollection<Report>();
+        public TriggeredBlockingCollection<Report> exploreQueue = new TriggeredBlockingCollection<Report>();
 
         public BlockingCollection<License> licenses = new BlockingCollection<License>();
         public BlockingCollection<Wallet> wallets = new BlockingCollection<Wallet>();
@@ -78,15 +78,15 @@ namespace goldrunnersharp
             _digSignal = new SemaphoreSlim(10);
             _exploreSignal = new SemaphoreSlim(200);
 
-            //exploreQueue.OnAdd += GoDigEvent;
+            exploreQueue.OnAdd += GoDigEvent;
 
             this.API = base_url;
         }
 
-        //private void GoDigEvent(object sender, TriggeredBlockingCollectionEventArgs<Report> args)
-        //{
-        //    _ = GoDig(args.item);
-        //}
+        private void GoDigEvent(object sender, TriggeredBlockingCollectionEventArgs<Report> args)
+        {
+            _ = GoDig(args.item);
+        }
 
         //public Task GetLicense()
         //{
@@ -337,7 +337,7 @@ namespace goldrunnersharp
 
                     if (explore.Amount > 0)
                     {
-                        _ = GoDig(explore);
+                        exploreQueue.Add(explore);
                     }
                 }
             }
