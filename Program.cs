@@ -78,7 +78,7 @@ namespace goldrunnersharp
         public Game(DefaultApi base_url)
         {
             _digSignal = new SemaphoreSlim(10);
-            _exploreSignal = new SemaphoreSlim(30);
+            _exploreSignal = new SemaphoreSlim(200);
 
             //exploreQueue.OnAdd += GoDigEvent;
 
@@ -182,7 +182,13 @@ namespace goldrunnersharp
                 }
                 catch (ApiException ex)
                 {
-                    if ((ex.ErrorCode > 500 && ex.ErrorCode < 600) || ex.ErrorCode == 408 || ex.ErrorContent == "The request timed-out." || ex.ErrorContent == "Connection refused Connection refused")
+                    if (
+                        (ex.ErrorCode > 500 && ex.ErrorCode < 600)
+                        || ex.ErrorCode == 408
+                        || ex.ErrorContent == "The request timed-out."
+                        || ex.ErrorContent == "Connection refused Connection refused"
+                        || ex.ErrorContent == "An error occurred while sending the request. The response ended prematurely."
+                    )
                     {
 
                     }
@@ -335,61 +341,50 @@ namespace goldrunnersharp
             }
         }
 
-        //public async Task BigExplore(int x)
-        //{
-        //    try
-        //    {
-        //        _exploreSignal.Wait();
-
-        //        foreach (var range in Enumerable.Range(0, 3500))
-        //        {
-        //            var explore = await this.Explore(new Area(x, range, 1, 1));
-
-        //            if (explore.Amount > 0)
-        //            {
-        //                exploreQueue.Add(explore);
-        //            }
-        //        }
-        //    }
-        //    finally
-        //    {
-        //        _exploreSignal.Release();
-        //    }
-        //}
-
-        public async Task Xy(Area area, int line)
+        public async Task Xy2(Area area, int line)
         {
-            var explore = await this.Explore(new Area(area.PosX, area.PosY, area.SizeX, area.SizeY));
+            var newLine = line / 5;
 
-            if (explore.Amount >= line * line * Percent)
+            var tasks = new List<Report>();
+            var tasks2 = new List<Task>();
+
+            for (int x = 0; x < 5; x++)
             {
-                if (line == 16)
+                for (int y = 0; y < 5; y++)
                 {
-                    exploreQueue.Add(explore);
-                }
-                else
-                {
-                    var newLine = line / 2;
+                    var posX = area.PosX.Value + (x * newLine);
+                    var posY = area.PosY.Value + (y * newLine);
 
-                    var task1 = Xy(new Area(area.PosX, area.PosY, newLine, newLine), newLine);
-                    var task2 = Xy(new Area(area.PosX + newLine, area.PosY, newLine, newLine), newLine);
-                    var task3 = Xy(new Area(area.PosX, area.PosY + newLine, newLine, newLine), newLine);
-                    var task4 = Xy(new Area(area.PosX + newLine, area.PosY + newLine, newLine, newLine), newLine);
+                    var explore = await this.Explore(new Area(posX, posY, newLine, newLine));
 
-                    await Task.WhenAll(task1, task2, task3, task4);
+                    tasks.Add(explore);
                 }
             }
+
+            foreach (var task in tasks.OrderByDescending((result) => { return result.Amount; }).Take(5))
+            {
+                if (newLine == 2 && task.Amount >= newLine * newLine * Percent)
+                {
+                    exploreQueue.Add(task);
+                }
+                else if (newLine != 2)
+                {
+                    tasks2.Add(Xy2(task.Area, newLine));
+                }
+            }
+
+            await Task.WhenAll(tasks2.ToArray());
         }
 
         public async Task Start()
         {
             var tasks = new List<Task>();
 
-            foreach (var x in Enumerable.Range(0, 27))
+            foreach (var x in Enumerable.Range(0, 70))
             {
-                foreach (var y in Enumerable.Range(0, 27))
+                foreach (var y in Enumerable.Range(0, 70))
                 {
-                    await Xy(new Area(x * 128, y * 128, 128, 128), 128);
+                    await Xy2(new Area(x * 50, y * 50, 50, 50), 50);
                 }
             }
 
@@ -498,48 +493,6 @@ namespace goldrunnersharp
             //}).ToArray();
 
             //Task.WaitAll(t);
-        }
-    }
-
-    public static class TaskEx
-    {
-        /// <summary>
-        /// Blocks while condition is true or timeout occurs.
-        /// </summary>
-        /// <param name="condition">The condition that will perpetuate the block.</param>
-        /// <param name="frequency">The frequency at which the condition will be check, in milliseconds.</param>
-        /// <param name="timeout">Timeout in milliseconds.</param>
-        /// <exception cref="TimeoutException"></exception>
-        /// <returns></returns>
-        public static async Task WaitWhile(Func<bool> condition, int frequency = 25, int timeout = -1)
-        {
-            var waitTask = Task.Run(async () =>
-            {
-                while (condition()) await Task.Delay(frequency);
-            });
-
-            if (waitTask != await Task.WhenAny(waitTask, Task.Delay(timeout)))
-                throw new TimeoutException();
-        }
-
-        /// <summary>
-        /// Blocks until condition is true or timeout occurs.
-        /// </summary>
-        /// <param name="condition">The break condition.</param>
-        /// <param name="frequency">The frequency at which the condition will be checked.</param>
-        /// <param name="timeout">The timeout in milliseconds.</param>
-        /// <returns></returns>
-        public static async Task WaitUntil(Func<bool> condition, int frequency = 25, int timeout = -1)
-        {
-            var waitTask = Task.Run(async () =>
-            {
-                while (!condition()) await Task.Delay(frequency);
-            });
-
-            if (waitTask != await Task.WhenAny(waitTask, Task.Delay(timeout)))
-            {
-                throw new TimeoutException();
-            }
         }
     }
 }
