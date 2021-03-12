@@ -202,7 +202,7 @@ namespace goldrunnersharp
             return report;
         }
 
-        private async Task<Wallet> CashTreasure(string treasure)
+        private async Task CashTreasure(string treasure, int depth, int insertDepth)
         {
             Wallet report = null;
 
@@ -211,7 +211,7 @@ namespace goldrunnersharp
                 try
                 {
                     report = (await this.API.CashAsyncWithHttpInfo(treasure)).Data;
-                    if (report.Sum().HasValue)
+                    if (report.Any() && depth == 9)
                     {
                         wallets.Add(report);
                     }
@@ -232,19 +232,6 @@ namespace goldrunnersharp
                     }
                 }
             }
-
-            return report;
-
-        }
-
-        private void CashTreasureList(TreasureList treasures)
-        {
-            Task.WaitAll(
-                treasures.Select((treasure) =>
-                {
-                    return CashTreasure(treasure);
-                }).ToArray()
-            );
         }
 
         private async Task<TreasureList> Dig(Dig dig)
@@ -315,7 +302,6 @@ namespace goldrunnersharp
 
                             var result = await Dig(new Dig(license.Id.Value, x, y, depth));
                             license.DigUsed += 1;
-                            depth += 1;
 
                             if (result != null)
                             {
@@ -323,9 +309,10 @@ namespace goldrunnersharp
                                 left -= result.Count;
                                 foreach (var treasure in result)
                                 {
-                                    await CashTreasure(treasure);
+                                    _ = CashTreasure(treasure, depth, 9);
                                 }
                             }
+                            depth += 1;
                         }
                     }
                 }
