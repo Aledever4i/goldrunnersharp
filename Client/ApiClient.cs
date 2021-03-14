@@ -184,8 +184,8 @@ namespace goldrunnersharp.Client
                 path, method, queryParams, postBody, headerParams, formParams, fileParams,
                 pathParams, contentType);
 
-            RestClient.Timeout = 5000;
-            request.Timeout = 5000;
+            RestClient.Timeout = 1000;
+            request.Timeout = 1000;
             InterceptRequest(request);
             var response = await RestClient.ExecuteTaskAsync(request);
             InterceptResponse(request, response);

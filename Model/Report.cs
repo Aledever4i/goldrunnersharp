@@ -21,6 +21,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using System.ComponentModel.DataAnnotations;
 using SwaggerDateConverter = goldrunnersharp.Client.SwaggerDateConverter;
+using System.Diagnostics.CodeAnalysis;
 
 namespace goldrunnersharp.Model
 {
@@ -28,7 +29,7 @@ namespace goldrunnersharp.Model
     /// Report
     /// </summary>
     [DataContract]
-    public partial class Report :  IEquatable<Report>, IValidatableObject
+    public partial class Report :  IEquatable<Report>, IValidatableObject, IComparer<Report>
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="Report" /> class.
@@ -137,6 +138,18 @@ namespace goldrunnersharp.Model
         IEnumerable<System.ComponentModel.DataAnnotations.ValidationResult> IValidatableObject.Validate(ValidationContext validationContext)
         {
             yield break;
+        }
+
+        public int Compare([AllowNull] Report x, [AllowNull] Report y)
+        {
+            if (x != null && y != null)
+            {
+                return x.Amount.CompareTo(y.Amount);
+            }
+            else
+            {
+                return 0;
+            }
         }
     }
 

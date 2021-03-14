@@ -8,6 +8,11 @@ using goldrunnersharp.Model;
 using goldrunnersharp.Api;
 using goldrunnersharp.Client;
 using System.Collections.Generic;
+using DataStructures;
+using System.Net.Http;
+using Newtonsoft.Json;
+using System.Text;
+using System.Net;
 
 namespace goldrunnersharp
 {
@@ -41,11 +46,12 @@ namespace goldrunnersharp
 
             UriBuilder myURI = new UriBuilder("http", address, 8000);
             var api = new DefaultApi(myURI.Uri.AbsoluteUri);
-            var client = new Game(api);
+            var client = new Game(api, myURI.Uri);
 
             client.Start().Wait();
         }
     }
+
 
     public class ExtendedReport : Report
     {
@@ -61,10 +67,10 @@ namespace goldrunnersharp
     public class Game
     {
         public BlockingCollection<Report> exploreQueue = new BlockingCollection<Report>();
-        //public TriggeredBlockingCollection<Report> exploreQueue = new TriggeredBlockingCollection<Report>();
-
         public BlockingCollection<License> licenses = new BlockingCollection<License>();
         public BlockingCollection<Wallet> wallets = new BlockingCollection<Wallet>();
+
+        HttpClient httpClient = new HttpClient();
 
         private Thread treadDig { get; set; }
 
@@ -75,17 +81,22 @@ namespace goldrunnersharp
         private SemaphoreSlim _digSignal;
         private SemaphoreSlim _exploreSignal;
 
-        public Game(DefaultApi base_url)
+        public Game(DefaultApi base_url, Uri base_url2)
         {
             _digSignal = new SemaphoreSlim(10);
             _exploreSignal = new SemaphoreSlim(200);
 
-            //exploreQueue.OnAdd += GoDigEvent;
-
             this.API = base_url;
+            this.httpClient = new HttpClient()
+            {
+                BaseAddress = base_url2,
+                Timeout = TimeSpan.FromMilliseconds(1000)
+            };
 
             treadDig = new Thread(processDig);
             treadDig.Start();
+
+
         }
 
         public void processDig()
@@ -98,40 +109,6 @@ namespace goldrunnersharp
                 }
             }
         }
-
-        //private void GoDigEvent(object sender, TriggeredBlockingCollectionEventArgs<Report> args)
-        //{
-        //    GoDig(args.item).Wait();
-        //}
-
-        //public Task GetLicense()
-        //{
-        //    var wallet = new Wallet();
-
-        //    if (wallets.TryTake(out Wallet ws))
-        //    {
-        //        wallet = ws;
-        //    }
-
-        //    try
-        //    {
-        //        return this.API.IssueLicenseAsyncWithHttpInfo(wallet).ContinueWith((license) => { this.licenses.Add(license.Result.Data); });
-        //    }
-        //    catch (ApiException ex)
-        //    {
-        //        if (
-        //            (ex.ErrorCode > 500 && ex.ErrorCode < 600)
-        //            || (ex.ErrorContent == "An error occurred while sending the request. The response ended prematurely.")
-        //            || (ex.ErrorContent == "Connection refused Connection refused")
-        //        )
-        //        {
-        //        }
-        //        else
-        //        {
-        //            throw ex;
-        //        }
-        //    }
-        //}
 
         public async Task<License> UpdateLicense()
         {
@@ -149,23 +126,33 @@ namespace goldrunnersharp
 
             while (true)
             {
-                try {
-                    return (await this.API.IssueLicenseAsyncWithHttpInfo(wallet)).Data;
-                }
-                catch (ApiException ex)
+                try
                 {
-                    if (
-                        (ex.ErrorCode > 500 && ex.ErrorCode < 600)
-                        || (ex.ErrorContent == "An error occurred while sending the request. The response ended prematurely.")
-                        || (ex.ErrorContent == "Connection refused Connection refused")
-                        || (ex.ErrorContent == "The operation has timed out.")
+                    var request = await this.httpClient.PostAsync($"/licenses", new StringContent(JsonConvert.SerializeObject(wallet), Encoding.UTF8, "application/json"));
+
+                    var jsonString = await request.Content.ReadAsStringAsync();
+
+                    if (request.StatusCode == HttpStatusCode.OK)
+                    {
+                        return JsonConvert.DeserializeObject<License>(jsonString);
+                    }
+                    else if
+                    (
+                        (int)request.StatusCode > 500 && (int)request.StatusCode < 600
+                        || jsonString == "The request timed-out."
+                        || jsonString == "Connection refused Connection refused"
+                        || jsonString == "An error occurred while sending the request. The response ended prematurely."
                     )
                     {
                     }
                     else
                     {
-                        throw ex;
+                        throw new Exception();
                     }
+                }
+                catch (Exception ex)
+                {
+                    throw ex;
                 }
             }
         }
@@ -178,28 +165,35 @@ namespace goldrunnersharp
             {
                 try
                 {
-                    report = (await this.API.ExploreAreaAsyncWithHttpInfo(area)).Data;
-                }
-                catch (ApiException ex)
-                {
-                    if (
-                        (ex.ErrorCode > 500 && ex.ErrorCode < 600)
-                        || ex.ErrorCode == 408
-                        || ex.ErrorContent == "The request timed-out."
-                        || ex.ErrorContent == "Connection refused Connection refused"
-                        || ex.ErrorContent == "An error occurred while sending the request. The response ended prematurely."
+                    var request = await this.httpClient.PostAsync($"/explore", new StringContent(JsonConvert.SerializeObject(area), Encoding.UTF8, "application/json"));
+
+                    var jsonString = await request.Content.ReadAsStringAsync();
+
+                    if (request.StatusCode == HttpStatusCode.OK)
+                    {
+                        return JsonConvert.DeserializeObject<Report>(jsonString);
+                    }
+                    else if (
+                        (int)request.StatusCode == 408
+                        || (int)request.StatusCode > 500 && (int)request.StatusCode < 600
+                        || jsonString == "The request timed-out."
+                        || jsonString == "Connection refused Connection refused"
+                        || jsonString == "An error occurred while sending the request. The response ended prematurely."
                     )
                     {
-
                     }
                     else
                     {
-                        throw ex;
+                        throw new Exception();
                     }
+                }
+                catch (Exception ex)
+                {
+                    throw ex;
                 }
             }
 
-            return report;
+            throw new Exception();
         }
 
         private async Task CashTreasure(string treasure, int depth, int insertDepth)
@@ -210,26 +204,37 @@ namespace goldrunnersharp
             {
                 try
                 {
-                    report = (await this.API.CashAsyncWithHttpInfo(treasure)).Data;
-                    if (report.Any() && depth == 9)
-                    {
-                        wallets.Add(report);
-                    }
-                }
-                catch (ApiException ex)
-                {
-                    if (ex.ErrorCode > 500 && ex.ErrorCode < 600)
-                    {
+                    var request = await this.httpClient.PostAsync($"/cash", new StringContent(treasure));
 
-                    }
-                    else if (ex.ErrorCode == 409)
+                    var jsonString = await request.Content.ReadAsStringAsync();
+
+                    if (request.StatusCode == HttpStatusCode.OK)
                     {
-                        throw new Exception(treasure, ex);
+                        report = JsonConvert.DeserializeObject<Wallet>(jsonString);
+
+                        if (report.Any() && depth == 5)
+                        {
+                            wallets.Add(report);
+                        }
+
+                        break;
+                    }
+                    else if (
+                        (int)request.StatusCode > 500 && (int)request.StatusCode < 600
+                        || jsonString == "The request timed-out."
+                        || jsonString == "Connection refused Connection refused"
+                        || jsonString == "An error occurred while sending the request. The response ended prematurely."
+                    )
+                    {
                     }
                     else
                     {
-                        throw ex;
+                        throw new Exception();
                     }
+                }
+                catch (Exception ex)
+                {
+                    throw ex;
                 }
             }
         }
@@ -243,27 +248,36 @@ namespace goldrunnersharp
             {
                 try
                 {
-                    report = (await this.API.DigAsyncWithHttpInfo(digParams)).Data;
-                }
-                catch (ApiException ex)
-                {
-                    if (ex.ErrorCode > 500 && ex.ErrorCode < 600)
-                    {
+                    var request = await this.httpClient.PostAsync($"/dig", new StringContent(JsonConvert.SerializeObject(digParams), Encoding.UTF8, "application/json"));
 
+                    var jsonString = await request.Content.ReadAsStringAsync();
+
+                    if (request.StatusCode == HttpStatusCode.OK)
+                    {
+                        return JsonConvert.DeserializeObject<TreasureList>(jsonString);
                     }
-                    else if (ex.ErrorCode == 403)
+                    else if (
+                        (int)request.StatusCode > 500 && (int)request.StatusCode < 600
+                    )
+                    {
+                    }
+                    else if ((int)request.StatusCode == 403)
                     {
                         var license = await UpdateLicense();
                         digParams.LicenseID = license.Id;
                     }
-                    else if (ex.ErrorCode == 404)
+                    else if ((int)request.StatusCode == 404)
                     {
                         break;
                     }
                     else
                     {
-                        throw ex;
+                        throw new Exception();
                     }
+                }
+                catch (Exception ex)
+                {
+                    throw ex;
                 }
             }
 
@@ -275,9 +289,7 @@ namespace goldrunnersharp
         {
             try
             {
-                _digSignal.Wait();
-
-                var license = await UpdateLicense();
+                var license = new License(0, 0, 0);
                 var left = report.Amount;
 
                 var initX = report.Area.PosX.Value;
@@ -293,26 +305,34 @@ namespace goldrunnersharp
                         var explore = await this.Explore(new Area(x, y, 1, 1));
                         var depth = 1;
 
-                        while (depth <= 10 && left > 0 && explore.Amount > 0)
+                        if (explore.Amount > 0)
                         {
-                            if (license.DigUsed >= license.DigAllowed)
-                            {
-                                license = await UpdateLicense();
-                            }
+                            _digSignal.Wait();
+                            license = await UpdateLicense();
 
-                            var result = await Dig(new Dig(license.Id.Value, x, y, depth));
-                            license.DigUsed += 1;
-
-                            if (result != null)
+                            while (depth <= 10 && left > 0 && explore.Amount > 0)
                             {
-                                explore.Amount -= result.Count;
-                                left -= result.Count;
-                                foreach (var treasure in result)
+                                if (license.DigUsed >= license.DigAllowed)
                                 {
-                                    _ = CashTreasure(treasure, depth, 9);
+                                    license = await UpdateLicense();
                                 }
+
+                                var result = await Dig(new Dig(license.Id.Value, x, y, depth));
+                                license.DigUsed += 1;
+
+                                if (result != null)
+                                {
+                                    explore.Amount -= result.Count;
+                                    left -= result.Count;
+                                    foreach (var treasure in result)
+                                    {
+                                        _ = CashTreasure(treasure, depth, 9);
+                                    }
+                                }
+                                depth += 1;
                             }
-                            depth += 1;
+
+                            _digSignal.Release();
                         }
                     }
                 }
@@ -322,7 +342,7 @@ namespace goldrunnersharp
                     licenses.Add(license);
                 }
             }
-            finally
+            catch
             {
                 _digSignal.Release();
             }
@@ -375,111 +395,7 @@ namespace goldrunnersharp
                 }
             }
 
-            await Task.WhenAll(tasks.ToArray());  
-
-
-            //var tasks = new List<Task>();
-            //var searchTask = new List<Task>();
-
-            //foreach (var x in Enumerable.Range(0, 3500))
-            //{
-            //    if (searchTask.Count > 1000000)
-            //    {
-            //        break;
-            //    }
-
-            //    foreach (var y in Enumerable.Range(0, 3500))
-            //    {
-            //        try
-            //        {
-            //            _exploreSignal.Wait();
-
-            //            _ = Task.Run(() =>
-            //            {
-            //                var explore = this.Explore(new Area(x, y, 1, 1)).ContinueWith(async (result) =>
-            //                {
-            //                    if (result.Result.Amount > 0)
-            //                    {
-            //                        await GoDig(result.Result);
-            //                    }
-            //                });
-
-            //                searchTask.Add(explore);
-            //            });
-            //        }
-            //        finally
-            //        {
-            //            _exploreSignal.Release();
-            //        }
-            //    }
-            //}
-
-            //Task.WaitAll(searchTask.ToArray());
-            //Task.WaitAll(tasks.ToArray());
-
-
-            //foreach (var x in Enumerable.Range(0, 3500))
-            //{
-            //    foreach (var y in Enumerable.Range(0, 3500))
-            //    {
-            //        if (tasks.Count > 50000)
-            //        {
-            //            break;
-            //        }
-
-            //        try
-            //        {
-            //            await _exploreSignal.WaitAsync();
-
-            //            var explore = await this.Explore(new Area(x, y, 1, 1));
-
-            //            if (explore.Amount > 0)
-            //            {
-            //                var t = GoDig(explore);
-            //                tasks.Add(t);
-            //            }
-            //        } 
-            //        finally
-            //        { 
-            //            _exploreSignal.Release();
-            //        }
-            //    }
-            //}
-
-
-            //var t = Enumerable.Range(0, 3500).Select((x) =>
-            //{
-            //    return Task.Run(async () => {
-            //        try
-            //        {
-            //            await _exploreSignal.WaitAsync();
-
-            //            foreach (var range in Enumerable.Range(0, 3500))
-            //            {
-            //                if (tasks.Count > 50000)
-            //                {
-            //                    break;
-            //                }
-
-            //                var explore = await this.Explore(new Area(x, range, 1, 1));
-
-            //                if (explore.Amount > 0)
-            //                {
-            //                    tasks.Add(GoDig(explore));
-            //                }
-            //            }
-
-            //            //var task = BigExplore(x);
-            //            //tasks.Add(task);
-            //        }
-            //        finally
-            //        {
-            //            _exploreSignal.Release();
-            //        }
-            //    });
-            //}).ToArray();
-
-            //Task.WaitAll(t);
+            await Task.WhenAll(tasks.ToArray());
         }
     }
 }
