@@ -16,28 +16,6 @@ using System.Net;
 
 namespace goldrunnersharp
 {
-    public class TriggeredBlockingCollectionEventArgs<T> : EventArgs
-    {
-        public T item { get; set; }
-
-        public TriggeredBlockingCollectionEventArgs(T item)
-        {
-            this.item = item;
-        }
-    }
-
-    public class TriggeredBlockingCollection<T>
-    {
-        public BlockingCollection<T> exploreQueue = new BlockingCollection<T>();
-
-        public event EventHandler<TriggeredBlockingCollectionEventArgs<T>> OnAdd;
-
-        public void Add(T item)
-        {
-            OnAdd(this, new TriggeredBlockingCollectionEventArgs<T>(item));
-        }
-    }
-
     class Program
     {
         static void Main(string[] args)
@@ -84,19 +62,17 @@ namespace goldrunnersharp
         public Game(DefaultApi base_url, Uri base_url2)
         {
             _digSignal = new SemaphoreSlim(10);
-            _exploreSignal = new SemaphoreSlim(200);
+            _exploreSignal = new SemaphoreSlim(30);
 
             this.API = base_url;
             this.httpClient = new HttpClient()
             {
                 BaseAddress = base_url2,
-                Timeout = TimeSpan.FromMilliseconds(2000)
+                Timeout = TimeSpan.FromMilliseconds(1500)
             };
 
             treadDig = new Thread(processDig);
             treadDig.Start();
-
-
         }
 
         public void processDig()
@@ -269,7 +245,7 @@ namespace goldrunnersharp
                         var jsonString = await request.Content.ReadAsStringAsync();
                         report = JsonConvert.DeserializeObject<Wallet>(jsonString);
 
-                        if (report.Any() && depth == 5)
+                        if (report.Any() && depth == 7)
                         {
                             wallets.Add(report);
                         }
@@ -448,7 +424,7 @@ namespace goldrunnersharp
         {
             var newLine = line / 5;
 
-            var tasks = new List<Report>();
+            var tasks = new List<Task<Report>>();
             var tasks2 = new List<Task>();
 
             for (int x = 0; x < 5; x++)
@@ -458,31 +434,31 @@ namespace goldrunnersharp
                     var posX = area.PosX.Value + (x * newLine);
                     var posY = area.PosY.Value + (y * newLine);
 
-                    var explore = await this.Explore(new Area(posX, posY, newLine, newLine));
+                    var explore = this.Explore(new Area(posX, posY, newLine, newLine));
 
                     tasks.Add(explore);
                 }
             }
 
-            foreach (var task in tasks.OrderByDescending((result) => { return result.Amount; }).Take(5))
-            {
-                if (newLine == 2 && task.Amount >= newLine * newLine * Percent)
+            await Task.WhenAll(tasks.ToArray()).ContinueWith((reports) => {
+                foreach (var task in reports.Result.OrderByDescending((result) => { return result.Amount; }).Take(5))
                 {
-                    exploreQueue.Add(task);
+                    if (newLine == 2 && task.Amount > 0)
+                    {
+                        exploreQueue.Add(task);
+                    }
+                    else if (newLine != 2)
+                    {
+                        tasks2.Add(Xy2(task.Area, newLine));
+                    }
                 }
-                else if (newLine != 2)
-                {
-                    tasks2.Add(Xy2(task.Area, newLine));
-                }
-            }
+            });
 
             await Task.WhenAll(tasks2.ToArray());
         }
 
         public async Task Start()
         {
-            var tasks = new List<Task>();
-
             foreach (var x in Enumerable.Range(0, 70))
             {
                 foreach (var y in Enumerable.Range(0, 70))
@@ -490,8 +466,6 @@ namespace goldrunnersharp
                     await Xy2(new Area(x * 50, y * 50, 50, 50), 50);
                 }
             }
-
-            await Task.WhenAll(tasks.ToArray());
         }
     }
 }
