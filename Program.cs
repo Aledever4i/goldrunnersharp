@@ -26,7 +26,7 @@ namespace goldrunnersharp
             var api = new DefaultApi(myURI.Uri.AbsoluteUri);
             var client = new Game(api, myURI.Uri);
 
-            client.Start().Wait();
+            client.Await().Wait();
         }
     }
 
@@ -42,37 +42,73 @@ namespace goldrunnersharp
         }
     }
 
+    public class Gold
+    {
+        public string Money { get; set; }
+
+        public int Depth { get; set; }
+    }
+
     public class Game
     {
         public BlockingCollection<Report> exploreQueue = new BlockingCollection<Report>();
+        public BlockingCollection<Gold> treasureQueue = new BlockingCollection<Gold>();
         public BlockingCollection<License> licenses = new BlockingCollection<License>();
         public BlockingCollection<Wallet> wallets = new BlockingCollection<Wallet>();
 
-        HttpClient httpClient = new HttpClient();
+        private HttpClient httpClient { get; set; }
 
-        private Thread treadDig { get; set; }
+        private Thread treadDig1 { get; set; }
 
-        private const double Percent = 0.04;
+        private Thread treasureThread { get; set; }
+
+        private Thread treadExplore1 { get; set; }
+
+        private Thread treadExplore2 { get; set; }
+
+        private Thread treadExplore3 { get; set; }
 
         private DefaultApi API { get; set; }
 
         private SemaphoreSlim _digSignal;
-        private SemaphoreSlim _exploreSignal;
 
         public Game(DefaultApi base_url, Uri base_url2)
         {
             _digSignal = new SemaphoreSlim(10);
-            _exploreSignal = new SemaphoreSlim(30);
 
             this.API = base_url;
             this.httpClient = new HttpClient()
             {
                 BaseAddress = base_url2,
-                Timeout = TimeSpan.FromMilliseconds(1500)
+                Timeout = TimeSpan.FromMilliseconds(1500),
+                DefaultRequestVersion = new Version(2, 0)
             };
 
-            treadDig = new Thread(processDig);
-            treadDig.Start();
+            treadDig1 = new Thread(processDig);
+            treadDig1.Start();
+
+            treasureThread = new Thread(treasureStart);
+            treasureThread.Start();
+
+            treadExplore1 = new Thread(Start1);
+            treadExplore1.Start();
+
+            treadExplore2 = new Thread(Start2);
+            treadExplore2.Start();
+
+            treadExplore3 = new Thread(Start3);
+            treadExplore3.Start();
+        }
+
+        public void treasureStart()
+        {
+            while (true)
+            {
+                if (treasureQueue.TryTake(out Gold item))
+                {
+                    _ = CashTreasure(item);
+                }
+            }
         }
 
         public void processDig()
@@ -186,7 +222,7 @@ namespace goldrunnersharp
 
                         return report;
                     }
-                    else if ((int)request.StatusCode == 408 || (int)request.StatusCode > 500 && (int)request.StatusCode < 600)
+                    else if ((int)request.StatusCode == 408 || ((int)request.StatusCode > 500 && (int)request.StatusCode < 600))
                     {
                     }
                 }
@@ -230,7 +266,7 @@ namespace goldrunnersharp
             throw new Exception();
         }
 
-        private async Task CashTreasure(string treasure, int depth, int insertDepth)
+        private async Task CashTreasure(Gold treasure)
         {
             Wallet report = null;
 
@@ -238,14 +274,14 @@ namespace goldrunnersharp
             {
                 try
                 {
-                    var request = await this.httpClient.PostAsync($"/cash", new StringContent(JsonConvert.SerializeObject(treasure), Encoding.UTF8, "application/json"));
+                    var request = await this.httpClient.PostAsync($"/cash", new StringContent(JsonConvert.SerializeObject(treasure.Money), Encoding.UTF8, "application/json"));
 
                     if (request.StatusCode == HttpStatusCode.OK)
                     {
                         var jsonString = await request.Content.ReadAsStringAsync();
                         report = JsonConvert.DeserializeObject<Wallet>(jsonString);
 
-                        if (report.Any() && depth == 7)
+                        if (report.Any() && treasure.Depth == 5)
                         {
                             wallets.Add(report);
                         }
@@ -401,7 +437,7 @@ namespace goldrunnersharp
                                     left -= result.Count;
                                     foreach (var treasure in result)
                                     {
-                                        _ = CashTreasure(treasure, depth, 9);
+                                        treasureQueue.Add(new Gold() { Money = treasure, Depth = depth });
                                     }
                                 }
                                 depth += 1;
@@ -424,9 +460,6 @@ namespace goldrunnersharp
         {
             var newLine = line / 5;
 
-            var tasks = new List<Task<Report>>();
-            var tasks2 = new List<Task>();
-
             for (int x = 0; x < 5; x++)
             {
                 for (int y = 0; y < 5; y++)
@@ -434,38 +467,57 @@ namespace goldrunnersharp
                     var posX = area.PosX.Value + (x * newLine);
                     var posY = area.PosY.Value + (y * newLine);
 
-                    var explore = this.Explore(new Area(posX, posY, newLine, newLine));
-
-                    tasks.Add(explore);
+                    await this.Explore(new Area(posX, posY, newLine, newLine)).ContinueWith(async (result) => {
+                        if (result.Result.Amount > result.Result.Area.SizeX * result.Result.Area.SizeY * 0.06) // 0.04 вернуть
+                        {
+                            if (newLine == 2 && result.Result.Amount > 0)
+                            {
+                                exploreQueue.Add(result.Result);
+                            }
+                            else if (newLine != 2)
+                            {
+                                await Xy2(result.Result.Area, newLine);
+                            }
+                        }
+                    }, TaskContinuationOptions.RunContinuationsAsynchronously);
                 }
             }
-
-            await Task.WhenAll(tasks.ToArray()).ContinueWith((reports) => {
-                foreach (var task in reports.Result.OrderByDescending((result) => { return result.Amount; }).Take(5))
-                {
-                    if (newLine == 2 && task.Amount > 0)
-                    {
-                        exploreQueue.Add(task);
-                    }
-                    else if (newLine != 2)
-                    {
-                        tasks2.Add(Xy2(task.Area, newLine));
-                    }
-                }
-            });
-
-            await Task.WhenAll(tasks2.ToArray());
         }
 
-        public async Task Start()
+        public void Start1()
         {
-            foreach (var x in Enumerable.Range(0, 70))
+            foreach (var x in Enumerable.Range(0, 25))
             {
                 foreach (var y in Enumerable.Range(0, 70))
                 {
-                    await Xy2(new Area(x * 50, y * 50, 50, 50), 50);
+                    Xy2(new Area(x * 50, y * 50, 50, 50), 50).Wait();
                 }
             }
+        }
+        public void Start2()
+        {
+            foreach (var x in Enumerable.Range(26, 50))
+            {
+                foreach (var y in Enumerable.Range(0, 70))
+                {
+                    Xy2(new Area(x * 50, y * 50, 50, 50), 50).Wait();
+                }
+            }
+        }
+        public void Start3()
+        {
+            foreach (var x in Enumerable.Range(51, 70))
+            {
+                foreach (var y in Enumerable.Range(0, 70))
+                {
+                    Xy2(new Area(x * 50, y * 50, 50, 50), 50).Wait();
+                }
+            }
+        }
+
+        public async Task Await()
+        {
+            await Task.Delay(600000);
         }
     }
 }
