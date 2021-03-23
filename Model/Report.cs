@@ -29,7 +29,7 @@ namespace goldrunnersharp.Model
     /// Report
     /// </summary>
     [DataContract]
-    public partial class Report :  IEquatable<Report>, IValidatableObject//, IComparer<Report>
+    public partial class Report :  IEquatable<Report>, IValidatableObject
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="Report" /> class.
@@ -140,17 +140,19 @@ namespace goldrunnersharp.Model
             yield break;
         }
 
-        //public int Compare([AllowNull] Report x, [AllowNull] Report y)
-        //{
-        //    if (x != null && y != null)
-        //    {
-        //        return x.Amount.CompareTo(y.Amount);
-        //    }
-        //    else
-        //    {
-        //        return 0;
-        //    }
-        //}
     }
-
+    public class ReportComparer : IComparer<Report>
+    {
+        public int Compare(Report x, Report y)
+        {
+            if (x != null && y != null)
+            {
+                return x.Amount.CompareTo(y.Amount);
+            }
+            else
+            {
+                return 0;
+            }
+        }
+    }
 }

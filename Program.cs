@@ -23,10 +23,12 @@ namespace goldrunnersharp
             var address = Environment.GetEnvironmentVariable("ADDRESS");
 
             UriBuilder myURI = new UriBuilder("http", address, 8000);
-            var api = new DefaultApi(myURI.Uri.AbsoluteUri);
-            var client = new Game(api, myURI.Uri);
 
-            client.Await().Wait();
+            ThreadPool.SetMinThreads(100, 100);
+
+            var client = new Game(myURI.Uri);
+
+            client.Await();
         }
     }
 
@@ -48,12 +50,22 @@ namespace goldrunnersharp
         public int Depth { get; set; }
     }
 
+    public class GoldComparer : IComparer<Gold>
+    {
+        public int Compare(Gold x, Gold y)
+        {
+            return x.Depth.CompareTo(y.Depth);
+        }
+    }
+
     public class Game
     {
         public BlockingCollection<Report> exploreQueue = new BlockingCollection<Report>();
-        public BlockingCollection<Gold> treasureQueue = new BlockingCollection<Gold>();
+        public ConcurrentPriorityQueue<Gold> treasureQueue = new ConcurrentPriorityQueue<Gold>(new GoldComparer());
         public BlockingCollection<License> licenses = new BlockingCollection<License>();
         public BlockingCollection<Wallet> wallets = new BlockingCollection<Wallet>();
+
+        public ConcurrentPriorityQueue<Report> searchQueue = new ConcurrentPriorityQueue<Report>(new ReportComparer());
 
         private HttpClient httpClient { get; set; }
 
@@ -61,46 +73,42 @@ namespace goldrunnersharp
 
         private Thread treasureThread { get; set; }
 
-        private Thread treadExplore1 { get; set; }
-
-        private Thread treadExplore2 { get; set; }
-
-        private Thread treadExplore3 { get; set; }
-
-        private DefaultApi API { get; set; }
+        private Thread searchThread { get; set; }
 
         private SemaphoreSlim _digSignal;
-        private SemaphoreSlim _exploreSignal;
 
-        public Game(DefaultApi base_url, Uri base_url2)
+        public Game(Uri base_url2)
         {
             _digSignal = new SemaphoreSlim(10);
-
-            this.API = base_url;
             this.httpClient = new HttpClient()
             {
                 BaseAddress = base_url2,
-                Timeout = TimeSpan.FromMilliseconds(1500),
+                Timeout = TimeSpan.FromMilliseconds(2000),
                 DefaultRequestVersion = new Version(2, 0)
             };
 
-            treadDig1 = new Thread(processDig);
+            treadDig1 = new Thread(ProcessDig) { IsBackground = true, Priority = ThreadPriority.Highest };
             treadDig1.Start();
 
-            treasureThread = new Thread(treasureStart);
+            treasureThread = new Thread(TreasureStart);
             treasureThread.Start();
 
-            treadExplore1 = new Thread(Start1);
-            treadExplore1.Start();
-
-            treadExplore2 = new Thread(Start2);
-            treadExplore2.Start();
-
-            treadExplore3 = new Thread(Start3);
-            treadExplore3.Start();
+            searchThread = new Thread(SearchStart);
+            searchThread.Start();
         }
 
-        public void treasureStart()
+        public void SearchStart()
+        {
+            while (true)
+            {
+                if (searchQueue.TryTake(out Report item))
+                {
+                    _ = Xy2(item.Area, 10);
+                }
+            }
+        }
+
+        public void TreasureStart()
         {
             while (true)
             {
@@ -111,7 +119,7 @@ namespace goldrunnersharp
             }
         }
 
-        public void processDig()
+        public void ProcessDig()
         {
             while (true)
             {
@@ -140,72 +148,34 @@ namespace goldrunnersharp
             {
                 try
                 {
-                    return (await this.API.IssueLicenseAsyncWithHttpInfo(wallet)).Data;
-                }
-                catch (ApiException ex)
-                {
-                    if (
-                        (ex.ErrorCode > 500 && ex.ErrorCode < 600)
-                        || (ex.ErrorContent == "An error occurred while sending the request. The response ended prematurely.")
-                        || (ex.ErrorContent == "Connection refused Connection refused")
-                        || (ex.ErrorContent == "The operation has timed out.")
+                    var request = await this.httpClient.PostAsync($"/licenses", new StringContent(JsonConvert.SerializeObject(wallet), Encoding.UTF8, "application/json"));
+
+                    var jsonString = await request.Content.ReadAsStringAsync();
+
+                    if (request.StatusCode == HttpStatusCode.OK)
+                    {
+                        return JsonConvert.DeserializeObject<License>(jsonString);
+                    }
+                    else if
+                    (
+                        (int)request.StatusCode > 500 && (int)request.StatusCode < 600
+                        || jsonString == "The request timed-out."
+                        || jsonString == "Connection refused Connection refused"
+                        || jsonString == "An error occurred while sending the request. The response ended prematurely."
                     )
                     {
                     }
                     else
                     {
-                        throw ex;
+                        throw new Exception();
                     }
+                }
+                catch (Exception ex)
+                {
+                    throw ex;
                 }
             }
         }
-
-        //public async Task<License> UpdateLicense()
-        //{
-        //    if (licenses.TryTake(out License license))
-        //    {
-        //        return license;
-        //    }
-
-        //    var wallet = new Wallet();
-
-        //    if (wallets.TryTake(out Wallet ws))
-        //    {
-        //        wallet = ws;
-        //    }
-
-        //    while (true)
-        //    {
-        //        try
-        //        {
-        //            var request = await this.httpClient.PostAsync($"/licenses", new StringContent(JsonConvert.SerializeObject(wallet), Encoding.UTF8, "application/json"));
-
-        //            var jsonString = await request.Content.ReadAsStringAsync();
-
-        //            if (request.StatusCode == HttpStatusCode.OK)
-        //            {
-        //                return JsonConvert.DeserializeObject<License>(jsonString);
-        //            }
-        //            else if
-        //            (
-        //                (int)request.StatusCode > 500 && (int)request.StatusCode < 600
-        //                || jsonString == "The request timed-out."
-        //                || jsonString == "Connection refused Connection refused"
-        //                || jsonString == "An error occurred while sending the request. The response ended prematurely."
-        //            )
-        //            {
-        //            }
-        //            else
-        //            {
-        //                throw new Exception();
-        //            }
-        //        }
-        //        catch (Exception ex)
-        //        {
-        //            throw ex;
-        //        }
-        //    }
-        //}
 
         public async Task<Report> Explore(Area area)
         {
@@ -281,7 +251,7 @@ namespace goldrunnersharp
                         var jsonString = await request.Content.ReadAsStringAsync();
                         report = JsonConvert.DeserializeObject<Wallet>(jsonString);
 
-                        if (report.Any() && treasure.Depth == 5)
+                        if (report.Any() && treasure.Depth == 8)
                         {
                             wallets.Add(report);
                         }
@@ -467,94 +437,68 @@ namespace goldrunnersharp
                     var posX = area.PosX.Value + (x * newLine);
                     var posY = area.PosY.Value + (y * newLine);
 
-                    await this.Explore(new Area(posX, posY, newLine, newLine)).ContinueWith(async (result) => {
-                        if (result.Result.Amount > result.Result.Area.SizeX * result.Result.Area.SizeY * 0.06) // 0.04 вернуть
+                    await this.Explore(new Area(posX, posY, newLine, newLine)).ContinueWith((result) => {
+                        if (newLine == 2 && result.Result.Amount > 0)
+                        {
+                            exploreQueue.Add(result.Result);
+                        }
+                        else if (newLine != 2 && result.Result.Amount >= result.Result.Area.SizeX * result.Result.Area.SizeY * 0.05)
+                        {
+                            searchQueue.TryAdd(result.Result);
+                        }
+                    });
+                }
+            }
+        }
+
+        public async Task Xy(Area area, int line)
+        {
+            var newLine = line / 5;
+
+            for (int x = 0; x < 5; x++)
+            {
+                for (int y = 0; y < 5; y++)
+                {
+                    var posX = area.PosX.Value + (x * newLine);
+                    var posY = area.PosY.Value + (y * newLine);
+
+                    await this.Explore(new Area(posX, posY, newLine, newLine))
+                        .ContinueWith((result) =>
                         {
                             if (newLine == 2 && result.Result.Amount > 0)
                             {
                                 exploreQueue.Add(result.Result);
                             }
-                            else if (newLine != 2)
+                            else if (newLine != 2 && result.Result.Amount >= result.Result.Area.SizeX * result.Result.Area.SizeY * 0.05)
                             {
-                                await Xy2(result.Result.Area, newLine);
+                                searchQueue.TryAdd(result.Result);
                             }
-                        }
-                    }, TaskContinuationOptions.RunContinuationsAsynchronously);
+                        });
                 }
             }
         }
 
-        //public async Task Xy2(Area area, int line)
-        //{
-        //    var newLine = line / 5;
-
-        //    var tasks = new List<Report>();
-        //    var tasks2 = new List<Task>();
-
-        //    for (int x = 0; x < 5; x++)
-        //    {
-        //        for (int y = 0; y < 5; y++)
-        //        {
-        //            var posX = area.PosX.Value + (x * newLine);
-        //            var posY = area.PosY.Value + (y * newLine);
-
-        //            var explore = await this.Explore(new Area(posX, posY, newLine, newLine));
-
-        //            tasks.Add(explore);
-        //        }
-        //    }
-
-        //    foreach (var task in tasks.OrderByDescending((result) => { return result.Amount; }).Take(5))
-        //    {
-        //        if (newLine == 2 && task.Amount >= newLine * newLine * 0.08)
-        //        {
-        //            exploreQueue.Add(task);
-        //        }
-        //        else if (newLine != 2)
-        //        {
-        //            tasks2.Add(Xy2(task.Area, newLine));
-        //        }
-        //    }
-
-        //    await Task.WhenAll(tasks2.ToArray());
-        //}
-
-        public void Start1()
+        public void Await()
         {
-            foreach (var x in Enumerable.Range(0, 25))
+            using SemaphoreSlim concurrencySemaphore = new SemaphoreSlim(100);
+            List<Task> tasks = new List<Task>();
+
+            foreach (var x in Enumerable.Range(0, 70))
             {
                 foreach (var y in Enumerable.Range(0, 70))
                 {
-                    Xy2(new Area(x * 50, y * 50, 50, 50), 50).Wait();
+                    //concurrencySemaphore.Wait();
+
+                    //var t = Task.Factory.StartNew(async () =>
+                    //{
+                        Xy(new Area(x * 50, y * 50, 50, 50), 50).Wait();
+                    //}).ContinueWith((result) => { concurrencySemaphore.Release(); });
+
+                    //tasks.Add(t);
                 }
             }
-        }
 
-        public void Start2()
-        {
-            foreach (var x in Enumerable.Range(26, 50))
-            {
-                foreach (var y in Enumerable.Range(0, 70))
-                {
-                    Xy2(new Area(x * 50, y * 50, 50, 50), 50).Wait();
-                }
-            }
-        }
-
-        public void Start3()
-        {
-            foreach (var x in Enumerable.Range(51, 70))
-            {
-                foreach (var y in Enumerable.Range(0, 70))
-                {
-                    Xy2(new Area(x * 50, y * 50, 50, 50), 50).Wait();
-                }
-            }
-        }
-
-        public async Task Await()
-        {
-            await Task.Delay(600000);
+            Task.WaitAll(tasks.ToArray());
         }
     }
 }
