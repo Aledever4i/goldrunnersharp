@@ -60,11 +60,10 @@ namespace goldrunnersharp
 
     public class Game
     {
-        public BlockingCollection<Report> exploreQueue = new BlockingCollection<Report>();
+        public ConcurrentPriorityQueue<Report> exploreQueue = new ConcurrentPriorityQueue<Report>(new ReportComparer());
         public ConcurrentPriorityQueue<Gold> treasureQueue = new ConcurrentPriorityQueue<Gold>(new GoldComparer());
         public BlockingCollection<License> licenses = new BlockingCollection<License>();
         public BlockingCollection<Wallet> wallets = new BlockingCollection<Wallet>();
-
         public ConcurrentPriorityQueue<Report> searchQueue = new ConcurrentPriorityQueue<Report>(new ReportComparer());
 
         private HttpClient httpClient { get; set; }
@@ -79,7 +78,7 @@ namespace goldrunnersharp
 
         public Game(Uri base_url2)
         {
-            _digSignal = new SemaphoreSlim(10);
+            _digSignal = new SemaphoreSlim(12);
             this.httpClient = new HttpClient()
             {
                 BaseAddress = base_url2,
@@ -146,9 +145,9 @@ namespace goldrunnersharp
 
             while (true)
             {
+                License:
                 try
                 {
-                    License:
                         var request = await this.httpClient.PostAsync($"/licenses", new StringContent(JsonConvert.SerializeObject(wallet), Encoding.UTF8, "application/json"));
 
                         var jsonString = await request.Content.ReadAsStringAsync();
@@ -169,12 +168,14 @@ namespace goldrunnersharp
                         }
                         else
                         {
-                            throw new Exception();
+                            goto License;
+                        //throw new Exception();
                         }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
-                    throw new Exception(ex.Message);
+                    goto License;
+                    //throw new Exception(ex.Message);
                 }
             }
         }
@@ -503,18 +504,25 @@ namespace goldrunnersharp
             {
                 foreach (var y in Enumerable.Range(0, 70))
                 {
-                    //concurrencySemaphore.Wait();
-
-                    //var t = Task.Factory.StartNew(async () =>
-                    //{
-                        Xy(new Area(x * 50, y * 50, 50, 50), 50).Wait();
-                    //}).ContinueWith((result) => { concurrencySemaphore.Release(); });
-
-                    //tasks.Add(t);
+                    Xy(new Area(x * 50, y * 50, 50, 50), 50).Wait();
                 }
             }
 
             Task.WaitAll(tasks.ToArray());
         }
+
+        //public static void DoSomethingALotWithActionsThrottled()
+        //{
+        //    var listOfActions = new List<Action>();
+        //    for (int i = 0; i < 100; i++)
+        //    {
+        //        var count = i;
+        //        // Note that we create the Action here, but do not start it.
+        //        listOfActions.Add(() => DoSomething(count));
+        //    }
+
+        //    var options = new ParallelOptions { MaxDegreeOfParallelism = 3 };
+        //    Parallel.Invoke(options, listOfActions.ToArray());
+        //}
     }
 }
