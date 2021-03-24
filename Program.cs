@@ -24,7 +24,7 @@ namespace goldrunnersharp
 
             UriBuilder myURI = new UriBuilder("http", address, 8000);
 
-            ThreadPool.SetMinThreads(100, 100);
+            //ThreadPool.SetMinThreads(100, 100);
 
             var client = new Game(myURI.Uri);
 
@@ -102,7 +102,7 @@ namespace goldrunnersharp
             {
                 if (searchQueue.TryTake(out Report item))
                 {
-                    _ = Xy2(item.Area, 10);
+                    _ = Xy2(item.Area, 15);
                 }
             }
         }
@@ -455,13 +455,9 @@ namespace goldrunnersharp
                     var posY = area.PosY.Value + (y * newLine);
 
                     await this.Explore(new Area(posX, posY, newLine, newLine)).ContinueWith((result) => {
-                        if (newLine == 2 && result.Result.Amount > 0)
+                        if (newLine == 3 && result.Result.Amount > 0)
                         {
                             exploreQueue.Add(result.Result);
-                        }
-                        else if (newLine != 2 && result.Result.Amount >= result.Result.Area.SizeX * result.Result.Area.SizeY * 0.05)
-                        {
-                            searchQueue.TryAdd(result.Result);
                         }
                     });
                 }
@@ -482,11 +478,7 @@ namespace goldrunnersharp
                     await this.Explore(new Area(posX, posY, newLine, newLine))
                         .ContinueWith((result) =>
                         {
-                            if (newLine == 2 && result.Result.Amount > 0)
-                            {
-                                exploreQueue.Add(result.Result);
-                            }
-                            else if (newLine != 2 && result.Result.Amount >= result.Result.Area.SizeX * result.Result.Area.SizeY * 0.05)
+                            if (result.Result.Amount >= result.Result.Area.SizeX * result.Result.Area.SizeY * 0.05)
                             {
                                 searchQueue.TryAdd(result.Result);
                             }
@@ -500,11 +492,11 @@ namespace goldrunnersharp
             using SemaphoreSlim concurrencySemaphore = new SemaphoreSlim(100);
             List<Task> tasks = new List<Task>();
 
-            foreach (var x in Enumerable.Range(0, 70))
+            foreach (var x in Enumerable.Range(0, 45))
             {
-                foreach (var y in Enumerable.Range(0, 70))
+                foreach (var y in Enumerable.Range(0, 45))
                 {
-                    Xy(new Area(x * 50, y * 50, 50, 50), 50).Wait();
+                    Xy(new Area(x * 75, y * 75, 75, 75), 75).Wait();
                 }
             }
 
