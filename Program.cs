@@ -28,7 +28,7 @@ namespace goldrunnersharp
 
             var client = new Game(myURI.Uri);
 
-            client.Await();
+            client.Await().Wait();
         }
     }
 
@@ -86,7 +86,7 @@ namespace goldrunnersharp
                 DefaultRequestVersion = new Version(2, 0)
             };
 
-            treadDig1 = new Thread(ProcessDig) { IsBackground = true, Priority = ThreadPriority.Highest };
+            treadDig1 = new Thread(new ThreadStart(ProcessDig)) { IsBackground = true, Priority = ThreadPriority.Highest };
             treadDig1.Start();
 
             treasureThread = new Thread(TreasureStart);
@@ -94,6 +94,32 @@ namespace goldrunnersharp
 
             searchThread = new Thread(SearchStart);
             searchThread.Start();
+
+            try
+            {
+                var process = System.Diagnostics.Process.GetCurrentProcess();
+
+                if (process.Threads.Count >= 1)
+                {
+                    process.Threads[0].IdealProcessor = 0;
+                }
+                if (process.Threads.Count >= 2)
+                {
+                    process.Threads[1].IdealProcessor = 1;
+                }
+                if (process.Threads.Count >= 3)
+                {
+                    process.Threads[2].IdealProcessor = 2;
+                }
+                if (process.Threads.Count >= 4)
+                {
+                    process.Threads[3].IdealProcessor = 3;
+                }                
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
         }
 
         public void SearchStart()
@@ -201,38 +227,44 @@ namespace goldrunnersharp
                             goto Explore;
                         }
                 }
-                catch (WebException)
+                catch (WebException ex)
                 {
-                    goto Explore;
-                    //if (ex.Message == "Connection refused")
-                    //{ }
-                    //else
-                    //{
-                    //    throw ex;
-                    //}
-                }
-                catch (TaskCanceledException)
-                {
-                    goto Explore;
-                }
-                catch (System.IO.IOException ex)
-                {
-                    if (ex.Message == "The response ended prematurely.")
-                    { }
+                    if (ex.Message == "Connection refused")
+                    {
+                        goto Explore;
+                    }
                     else
                     {
                         throw new Exception(ex.Message);
                     }
                 }
-                catch (HttpRequestException)
+                catch (TaskCanceledException ex)
                 {
-                    goto Explore;
-                    //if (ex.Message == "The request timed-out." || ex.Message == "Connection refused" || ex.Message == "An error occurred while sending the request.")
-                    //{ }
-                    //else
-                    //{
-                    //    throw new Exception(ex.Message);
-                    //}
+                    //goto Explore;
+                    throw new Exception(ex.Message);
+                }
+                catch (System.IO.IOException ex)
+                {
+                    if (ex.Message == "The response ended prematurely.")
+                    {
+                        goto Explore;
+                    }
+                    else
+                    {
+                        throw new Exception(ex.Message);
+                    }
+                }
+                catch (HttpRequestException ex)
+                {
+                    //goto Explore;
+                    if (ex.Message == "The request timed-out." || ex.Message.Contains("Connection refused") || ex.Message == "An error occurred while sending the request.")
+                    {
+                        goto Explore;
+                    }
+                    else
+                    {
+                        throw new Exception(ex.Message);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -245,10 +277,6 @@ namespace goldrunnersharp
 
         private async Task CashTreasure(Gold treasure)
         {
-            Wallet report = null;
-
-            //while (report == null)
-            //{
                 Restart:
                 try
                 {
@@ -257,9 +285,9 @@ namespace goldrunnersharp
                     if (request.StatusCode == HttpStatusCode.OK)
                     {
                         var jsonString = await request.Content.ReadAsStringAsync();
-                        report = JsonConvert.DeserializeObject<Wallet>(jsonString);
+                        var report = JsonConvert.DeserializeObject<Wallet>(jsonString);
 
-                        if (report.Any() && treasure.Depth == 8)
+                        if (report.Any() && treasure.Depth == 7)
                         {
                             wallets.Add(report);
                         }
@@ -385,7 +413,6 @@ namespace goldrunnersharp
 
         public async Task GoDig(Report report)
         {
-            var left = report.Amount;
 
             var initX = report.Area.PosX.Value;
             var sizeX = report.Area.SizeX;
@@ -393,59 +420,71 @@ namespace goldrunnersharp
             var initY = report.Area.PosY.Value;
             var sizeY = report.Area.SizeY;
 
-            for (int x = initX; x < (initX + sizeX) && left > 0; x++)
+            var list = new List<Task<Report>>();
+            for (int x = initX; x < (initX + sizeX); x++)
             {
-                for (int y = initY; y < (initY + sizeY) && left > 0; y++)
+                list.Add(this.Explore(new Area(x, initY, 1, sizeY)));
+            }
+
+            foreach (var result in await Task.WhenAll(list.ToArray()))
+            {
+                if (result.Amount > 0)
                 {
-                    var explore = await this.Explore(new Area(x, y, 1, 1));
-                    var depth = 1;
+                    var left = result.Amount;
 
-                    if (explore.Amount > 0)
+                    for (int y = initY; y < (initY + sizeY) && left > 0; y++)
                     {
-                        var license = new License(0, 0, 0);
-                        try
+                        var explore = await this.Explore(new Area(result.Area.PosX, y, 1, 1));
+                        var depth = 1;
+
+                        if (explore.Amount > 0)
                         {
-                            await _digSignal.WaitAsync();
-                            license = await UpdateLicense();
-
-                            while (depth <= 10 && left > 0 && explore.Amount > 0)
+                            var license = new License(0, 0, 0);
+                            try
                             {
-                                if (license.DigUsed >= license.DigAllowed)
-                                {
-                                    license = await UpdateLicense();
-                                }
+                                await _digSignal.WaitAsync();
+                                license = await UpdateLicense();
 
-                                var result = await Dig(new Dig(license.Id.Value, x, y, depth));
-                                license.DigUsed += 1;
-
-                                if (result != null)
+                                while (depth <= 10 && left > 0 && explore.Amount > 0)
                                 {
-                                    explore.Amount -= result.Count;
-                                    left -= result.Count;
-                                    foreach (var treasure in result)
+                                    if (license.DigUsed >= license.DigAllowed)
                                     {
-                                        treasureQueue.Add(new Gold() { Money = treasure, Depth = depth });
+                                        license = await UpdateLicense();
                                     }
+
+                                    var result1 = await Dig(new Dig(license.Id.Value, result.Area.PosX, y, depth));
+                                    license.DigUsed += 1;
+
+                                    if (result1 != null)
+                                    {
+                                        explore.Amount -= result1.Count;
+                                        left -= result1.Count;
+                                        foreach (var treasure in result1)
+                                        {
+                                            treasureQueue.Add(new Gold() { Money = treasure, Depth = depth });
+                                        }
+                                    }
+                                    depth += 1;
                                 }
-                                depth += 1;
                             }
-                        }
-                        finally
-                        {
-                            if (license.DigUsed < license.DigAllowed)
+                            finally
                             {
-                                licenses.Add(license);
+                                if (license.DigUsed < license.DigAllowed)
+                                {
+                                    licenses.Add(license);
+                                }
+                                _digSignal.Release();
                             }
-                            _digSignal.Release();
                         }
                     }
                 }
             }
         }
 
-        public async Task Xy2(Area area, int line)
+        public Task Xy2(Area area, int line)
         {
             var newLine = line / 5;
+            var tasks = new List<Task>();
 
             for (int x = 0; x < 5; x++)
             {
@@ -454,67 +493,85 @@ namespace goldrunnersharp
                     var posX = area.PosX.Value + (x * newLine);
                     var posY = area.PosY.Value + (y * newLine);
 
-                    await this.Explore(new Area(posX, posY, newLine, newLine)).ContinueWith((result) => {
-                        if (newLine == 3 && result.Result.Amount > 0)
+                    tasks.Add(
+                        this.Explore(new Area(posX, posY, newLine, newLine)).ContinueWith((result) =>
                         {
-                            exploreQueue.Add(result.Result);
-                        }
-                    });
-                }
-            }
-        }
-
-        public async Task Xy(Area area, int line)
-        {
-            var newLine = line / 5;
-
-            for (int x = 0; x < 5; x++)
-            {
-                for (int y = 0; y < 5; y++)
-                {
-                    var posX = area.PosX.Value + (x * newLine);
-                    var posY = area.PosY.Value + (y * newLine);
-
-                    await this.Explore(new Area(posX, posY, newLine, newLine))
-                        .ContinueWith((result) =>
-                        {
-                            if (result.Result.Amount >= result.Result.Area.SizeX * result.Result.Area.SizeY * 0.05)
+                            if (newLine == 3 && result.Result.Amount > 0)
                             {
-                                searchQueue.TryAdd(result.Result);
+                                exploreQueue.Add(result.Result);
                             }
-                        });
+                        })
+                    );
                 }
             }
+
+            return Task.WhenAll(tasks.ToArray());
         }
 
-        public void Await()
+        public Task Xy(Area area, int line)
         {
-            using SemaphoreSlim concurrencySemaphore = new SemaphoreSlim(100);
-            List<Task> tasks = new List<Task>();
+            var newLine = line / 5;
+            var tasks = new List<Task>();
 
+            for (int x = 0; x < 5; x++)
+            {
+                for (int y = 0; y < 5; y++)
+                {
+                    var posX = area.PosX.Value + (x * newLine);
+                    var posY = area.PosY.Value + (y * newLine);
+
+                    tasks.Add(
+                        this.Explore(new Area(posX, posY, newLine, newLine))
+                            .ContinueWith((result) =>
+                            {
+                                if (result.Result.Amount >= result.Result.Area.SizeX * result.Result.Area.SizeY * 0.05)
+                                {
+                                    searchQueue.TryAdd(result.Result);
+                                }
+                            })
+                    );
+                }
+            }
+
+            return Task.WhenAll(tasks.ToArray());
+        }
+
+        //public void Await()
+        //{
+        //    var options = new ParallelOptions { MaxDegreeOfParallelism = 4 };
+
+        //    foreach (var x in Enumerable.Range(0, 45))
+        //    {
+        //        var listOfActions = new List<Action>();
+
+        //        foreach (var y in Enumerable.Range(0, 45))
+        //        {
+        //            listOfActions.Add(() => _ = Xy(new Area(x * 75, y * 75, 75, 75), 75));
+        //        }
+
+        //        Parallel.Invoke(options, listOfActions.ToArray());
+
+        //        while (exploreQueue.Count > 100)
+        //        {
+        //            Task.Delay(1000).Wait();
+        //        }
+        //    }
+        //}
+
+        public async Task Await()
+        {
             foreach (var x in Enumerable.Range(0, 45))
             {
                 foreach (var y in Enumerable.Range(0, 45))
                 {
                     Xy(new Area(x * 75, y * 75, 75, 75), 75).Wait();
                 }
+
+                while (exploreQueue.Count > 100)
+                {
+                    await Task.Delay(1000);
+                }
             }
-
-            Task.WaitAll(tasks.ToArray());
         }
-
-        //public static void DoSomethingALotWithActionsThrottled()
-        //{
-        //    var listOfActions = new List<Action>();
-        //    for (int i = 0; i < 100; i++)
-        //    {
-        //        var count = i;
-        //        // Note that we create the Action here, but do not start it.
-        //        listOfActions.Add(() => DoSomething(count));
-        //    }
-
-        //    var options = new ParallelOptions { MaxDegreeOfParallelism = 3 };
-        //    Parallel.Invoke(options, listOfActions.ToArray());
-        //}
     }
 }
