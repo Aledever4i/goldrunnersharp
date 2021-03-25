@@ -169,248 +169,270 @@ namespace goldrunnersharp
                 wallet = ws;
             }
 
-            while (true)
+            License:
+            try
             {
-                License:
-                try
+                var request = await this.httpClient.PostAsync($"/licenses", new StringContent(JsonConvert.SerializeObject(wallet), Encoding.UTF8, "application/json"));
+
+                var jsonString = await request.Content.ReadAsStringAsync();
+
+                if (request.StatusCode == HttpStatusCode.OK)
                 {
-                        var request = await this.httpClient.PostAsync($"/licenses", new StringContent(JsonConvert.SerializeObject(wallet), Encoding.UTF8, "application/json"));
-
-                        var jsonString = await request.Content.ReadAsStringAsync();
-
-                        if (request.StatusCode == HttpStatusCode.OK)
-                        {
-                            return JsonConvert.DeserializeObject<License>(jsonString);
-                        }
-                        else if
-                        (
-                            (int)request.StatusCode > 500 && (int)request.StatusCode < 600
-                            || jsonString == "The request timed-out."
-                            || jsonString == "Connection refused Connection refused"
-                            || jsonString == "An error occurred while sending the request. The response ended prematurely."
-                        )
-                        {
-                            goto License;
-                        }
-                        else
-                        {
-                            goto License;
-                        //throw new Exception();
-                        }
+                    return JsonConvert.DeserializeObject<License>(jsonString);
                 }
-                catch (Exception)
+                else if ((int)request.StatusCode > 500 && (int)request.StatusCode < 600)
                 {
                     goto License;
-                    //throw new Exception(ex.Message);
+                }
+                else
+                {
+                    throw new Exception(request.StatusCode.ToString());
                 }
             }
+            catch (WebException ex)
+            {
+                if (ex.Message == "Connection refused")
+                {
+                    goto License;
+                }
+                else
+                {
+                    throw new Exception(ex.Message);
+                }
+            }
+            catch (TaskCanceledException ex)
+            {
+                throw new Exception(ex.Message);
+            }
+            catch (System.IO.IOException ex)
+            {
+                if (ex.Message == "The response ended prematurely.")
+                {
+                    goto License;
+                }
+                else
+                {
+                    throw new Exception(ex.Message);
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                if (ex.Message == "The request timed-out." || ex.Message.Contains("Connection refused") || ex.Message == "An error occurred while sending the request.")
+                {
+                    goto License;
+                }
+                else
+                {
+                    throw new Exception(ex.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
+
+            throw new Exception();
         }
 
         public async Task<Report> Explore(Area area)
         {
-            //while (true)
-            //{
-                Explore:
-                try
-                {
-                        var request = await this.httpClient.PostAsync($"/explore", new StringContent(JsonConvert.SerializeObject(area), Encoding.UTF8, "application/json"));
+            Explore:
+            try
+            {
+                var request = await this.httpClient.PostAsync($"/explore", new StringContent(JsonConvert.SerializeObject(area), Encoding.UTF8, "application/json"));
 
-                        if (request.StatusCode == HttpStatusCode.OK)
-                        {
-                            string jsonString = await request.Content.ReadAsStringAsync();
-                            var report = JsonConvert.DeserializeObject<Report>(jsonString);
+                if (request.StatusCode == HttpStatusCode.OK)
+                {
+                    string jsonString = await request.Content.ReadAsStringAsync();
+                    var report = JsonConvert.DeserializeObject<Report>(jsonString);
 
-                            return report;
-                        }
-                        else if ((int)request.StatusCode == 408 || ((int)request.StatusCode > 500 && (int)request.StatusCode < 600))
-                        {
-                            goto Explore;
-                        }
+                    return report;
                 }
-                catch (WebException ex)
+                else if ((int)request.StatusCode == 408 || ((int)request.StatusCode > 500 && (int)request.StatusCode < 600))
                 {
-                    if (ex.Message == "Connection refused")
-                    {
-                        goto Explore;
-                    }
-                    else
-                    {
-                        throw new Exception(ex.Message);
-                    }
+                    goto Explore;
                 }
-                catch (TaskCanceledException ex)
+            }
+            catch (WebException ex)
+            {
+                if (ex.Message == "Connection refused")
                 {
-                    //goto Explore;
-                    throw new Exception(ex.Message);
+                    goto Explore;
                 }
-                catch (System.IO.IOException ex)
-                {
-                    if (ex.Message == "The response ended prematurely.")
-                    {
-                        goto Explore;
-                    }
-                    else
-                    {
-                        throw new Exception(ex.Message);
-                    }
-                }
-                catch (HttpRequestException ex)
-                {
-                    //goto Explore;
-                    if (ex.Message == "The request timed-out." || ex.Message.Contains("Connection refused") || ex.Message == "An error occurred while sending the request.")
-                    {
-                        goto Explore;
-                    }
-                    else
-                    {
-                        throw new Exception(ex.Message);
-                    }
-                }
-                catch (Exception ex)
+                else
                 {
                     throw new Exception(ex.Message);
                 }
-            //}
+            }
+            catch (TaskCanceledException)
+            {
+                goto Explore;
+            }
+            catch (System.IO.IOException ex)
+            {
+                if (ex.Message == "The response ended prematurely.")
+                {
+                    goto Explore;
+                }
+                else
+                {
+                    throw new Exception(ex.Message);
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                if (ex.Message == "The request timed-out." || ex.Message.Contains("Connection refused") || ex.Message == "An error occurred while sending the request.")
+                {
+                    goto Explore;
+                }
+                else
+                {
+                    throw new Exception(ex.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
 
             throw new Exception();
         }
 
         private async Task CashTreasure(Gold treasure)
         {
-            Wallet report = null;
+            Restart:
+            try
+            {
+                var request = await this.httpClient.PostAsync($"/cash", new StringContent(JsonConvert.SerializeObject(treasure.Money), Encoding.UTF8, "application/json"));
 
-            //while (report == null)
-            //{
-                Restart:
-                try
+                if (request.StatusCode == HttpStatusCode.OK)
                 {
-                    var request = await this.httpClient.PostAsync($"/cash", new StringContent(JsonConvert.SerializeObject(treasure.Money), Encoding.UTF8, "application/json"));
+                    var jsonString = await request.Content.ReadAsStringAsync();
+                    var report = JsonConvert.DeserializeObject<Wallet>(jsonString);
 
-                    if (request.StatusCode == HttpStatusCode.OK)
+                    if (report.Any() && treasure.Depth == 8)
                     {
-                        var jsonString = await request.Content.ReadAsStringAsync();
-                        report = JsonConvert.DeserializeObject<Wallet>(jsonString);
-
-                        if (report.Any() && treasure.Depth == 8)
-                        {
-                            wallets.Add(report);
-                        }
-                    }
-                    else if ((int)request.StatusCode > 500 && (int)request.StatusCode < 600)
-                    {
-                        goto Restart;
+                        wallets.Add(report);
                     }
                 }
-                catch (WebException)
-                {
-                    goto Restart;
-                    //if (ex.Message == "Connection refused")
-                    //{ }
-                    //else
-                    //{
-                    //    throw ex;
-                    //}
-                }
-                catch (TaskCanceledException)
+                else if ((int)request.StatusCode > 500 && (int)request.StatusCode < 600)
                 {
                     goto Restart;
                 }
-                catch (System.IO.IOException)
+            }
+            catch (WebException ex)
+            {
+                if (ex.Message == "Connection refused")
                 {
                     goto Restart;
-                    //if (ex.Message == "The response ended prematurely.")
-                    //{ }
-                    //else
-                    //{
-                    //    throw new Exception(ex.Message);
-                    //}
                 }
-                catch (HttpRequestException)
-                {
-                    goto Restart;
-                    //if (ex.Message == "The request timed-out." || ex.Message == "Connection refused" || ex.Message == "An error occurred while sending the request.")
-                    //{ }
-                    //else
-                    //{
-                    //    throw new Exception(ex.Message);
-                    //}
-                }
-                catch (Exception ex)
+                else
                 {
                     throw new Exception(ex.Message);
                 }
-            //}
+            }
+            catch (TaskCanceledException)
+            {
+                goto Restart;
+            }
+            catch (System.IO.IOException ex)
+            {
+                if (ex.Message == "The response ended prematurely.")
+                {
+                    goto Restart;
+                }
+                else
+                {
+                    throw new Exception(ex.Message);
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                if (ex.Message == "The request timed-out." || ex.Message.Contains("Connection refused") || ex.Message == "An error occurred while sending the request.")
+                {
+                    goto Restart;
+
+                }
+                else
+                {
+                    throw new Exception(ex.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
         }
 
         private async Task<TreasureList> Dig(Dig dig)
         {
             var digParams = dig;
 
-            //while (true)
-            //{
-                Restart:
-                try
-                {
-                    var request = await this.httpClient.PostAsync($"/dig", new StringContent(JsonConvert.SerializeObject(digParams), Encoding.UTF8, "application/json"));
+            Restart:
+            try
+            {
+                var request = await this.httpClient.PostAsync($"/dig", new StringContent(JsonConvert.SerializeObject(digParams), Encoding.UTF8, "application/json"));
 
-                    if (request.StatusCode == HttpStatusCode.OK)
-                    {
-                        var jsonString = await request.Content.ReadAsStringAsync();
-                        return JsonConvert.DeserializeObject<TreasureList>(jsonString);
-                    }
-                    else if ((int)request.StatusCode > 500 && (int)request.StatusCode < 600)
-                    {
-                        goto Restart;
-                    }
-                    else if ((int)request.StatusCode == 403)
-                    {
-                        var license = await UpdateLicense();
-                        digParams.LicenseID = license.Id;
-                        goto Restart;
-                    }
-                    else if ((int)request.StatusCode == 404)
-                    {
-                    }
-                }
-                catch (WebException)
+                if (request.StatusCode == HttpStatusCode.OK)
                 {
-                    goto Restart;
-                    //if (ex.Message == "Connection refused")
-                    //{ }
-                    //else
-                    //{
-                    //    throw ex;
-                    //}
+                    var jsonString = await request.Content.ReadAsStringAsync();
+                    return JsonConvert.DeserializeObject<TreasureList>(jsonString);
                 }
-                catch (TaskCanceledException)
+                else if ((int)request.StatusCode > 500 && (int)request.StatusCode < 600)
                 {
                     goto Restart;
                 }
-                catch (System.IO.IOException)
+                else if ((int)request.StatusCode == 403)
+                {
+                    var license = await UpdateLicense();
+                    digParams.LicenseID = license.Id;
+                    goto Restart;
+                }
+                else if ((int)request.StatusCode == 404)
+                {
+                }
+            }
+            catch (WebException ex)
+            {
+                if (ex.Message == "Connection refused")
                 {
                     goto Restart;
-                    //if (ex.Message == "The response ended prematurely.")
-                    //{ }
-                    //else
-                    //{
-                    //    throw new Exception(ex.Message);
-                    //}
                 }
-                catch (HttpRequestException)
-                {
-                    goto Restart;
-                    //if (ex.Message == "The request timed-out." || ex.Message == "Connection refused" || ex.Message == "An error occurred while sending the request.")
-                    //{ }
-                    //else
-                    //{
-                    //    throw new Exception(ex.Message);
-                    //}
-                }
-                catch (Exception ex)
+                else
                 {
                     throw new Exception(ex.Message);
                 }
-            //}
+            }
+            catch (TaskCanceledException ex)
+            {
+                goto Restart;
+            }
+            catch (System.IO.IOException ex)
+            {
+                if (ex.Message == "The response ended prematurely.")
+                {
+                    goto Restart;
+                }
+                else
+                {
+                    throw new Exception(ex.Message);
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                if (ex.Message == "The request timed-out." || ex.Message.Contains("Connection refused") || ex.Message == "An error occurred while sending the request.")
+                {
+                    goto Restart;
+                }
+                else
+                {
+                    throw new Exception(ex.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
 
             return null;
         }
